@@ -1,0 +1,2 @@
+Add github settings see what are the best ones
+Add github settings for pull request and release and labels
