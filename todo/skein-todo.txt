@@ -1,0 +1,3 @@
+ 
+Two things still need your hand before first push: replace yourusername in go.mod and the workflow image references with your real GitHub handle, and build + push the CI Docker image once (docker build -f Dockerfile.ci -t ghcr.io/<you>/skein-ci:latest .).
+The code itself — LSP client, compositors, TUI — is the next phase, gated on Opus's answers to the 8 open questions in REVIEW.md.
