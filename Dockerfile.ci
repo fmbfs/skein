@@ -1,0 +1,36 @@
+# Dockerfile.ci
+#
+# Build image for skein CI E2E tests.
+# Contains: clangd, cmake, bear, build-essential.
+#
+# Build and push:
+#   docker build -f Dockerfile.ci -t ghcr.io/fmbfs/skein-ci:latest .
+#   docker push ghcr.io/fmbfs/skein-ci:latest
+#
+# Rebuild when: clangd version bumps, new system deps needed.
+# Go itself is NOT included — GitHub Actions setup-go handles that.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core build tools
+    build-essential \
+    cmake \
+    ninja-build \
+    bear \
+    # clangd (LSP engine — must be >= 14)
+    clangd-18 \
+    # Utilities
+    git \
+    ca-certificates \
+    curl \
+    && ln -s /usr/bin/clangd-18 /usr/local/bin/clangd \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify clangd is accessible and print version for CI logs
+RUN clangd --version
+
+WORKDIR /workspace

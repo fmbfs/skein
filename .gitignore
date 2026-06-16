@@ -1,0 +1,28 @@
+# Binaries
+/skein
+/dist/
+*.exe
+
+# Coverage
+coverage*.out
+*.cover
+
+# Go
+vendor/
+go.work
+go.work.sum
+
+# clangd / build artifacts in fixtures
+tests/fixtures/**/build/
+tests/fixtures/**/compile_commands.json
+.cache/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db

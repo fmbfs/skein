@@ -1,0 +1,49 @@
+# .golangci.yml
+# golangci-lint v1.59 configuration
+# Docs: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  tests: true          # lint test files too
+
+linters:
+  enable:
+    - errcheck         # unchecked errors
+    - gosimple         # simplification suggestions
+    - govet            # go vet checks
+    - ineffassign      # ineffectual assignments
+    - staticcheck      # advanced static analysis
+    - unused           # unused code
+    - gofmt            # formatting (fail if not gofmt'd)
+    - goimports        # import ordering
+    - misspell         # spelling in comments/strings
+    - gocritic         # opinionated but useful checks
+    - noctx            # HTTP requests without context
+    - bodyclose        # HTTP response body not closed
+    - exhaustive       # missing switch cases on enums
+    - godot            # comments should end with a period
+    - whitespace       # unnecessary blank lines
+
+linters-settings:
+  exhaustive:
+    default-signifies-exhaustive: true  # allow default: in switches
+
+  gocritic:
+    disabled-checks:
+      - commentedOutCode   # we comment out TODOs intentionally
+
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    # Test files get relaxed rules
+    - path: _test\.go
+      linters:
+        - errcheck
+        - godot
+
+    # Generated mock files
+    - path: mock_.*\.go
+      linters:
+        - all

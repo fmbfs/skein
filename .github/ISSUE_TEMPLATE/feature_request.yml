@@ -1,0 +1,46 @@
+name: Feature Request
+description: Propose a new feature or improvement
+title: "feat: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a feature request, check the roadmap in README.md —
+        it may already be planned.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: |
+        Describe the situation where you needed this.
+        "I want X" is less useful than "When exploring a large codebase, I find it hard to Y because Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like skein to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What do you currently do instead? Why doesn't that work well?
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Which mode does this affect?
+      options:
+        - Sniff (fast / CLI)
+        - Hunt (TUI)
+        - Both
+        - Neither / new mode
+    validations:
+      required: true

@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59
+          args: --timeout=5m
+
+  # ── E2E tests (run first so coverage is available to the unit job) ───────────
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/fmbfs/skein-ci:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build skein
+        run: go build -o /usr/local/bin/skein ./cmd/skein
+      - name: Generate compile_commands.json for fixture project
+        working-directory: tests/fixtures/simple_cpp
+        run: |
+          cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cp build/compile_commands.json .
+      - name: Run E2E tests with coverage
+        run: |
+          go test ./tests/e2e/... \
+            -v \
+            -coverpkg=./internal/... \
+            -coverprofile=coverage-e2e.out \
+            -covermode=atomic \
+            -timeout=5m
+      - name: Upload E2E coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-e2e
+          path: coverage-e2e.out
+          retention-days: 1
+
+  # ── Unit tests + merged coverage enforcement ────────────────────────────────
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: e2e   # ensures the E2E coverage artifact exists before merge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install gocovmerge
+        run: go install github.com/wadey/gocovmerge@latest
+
+      - name: Run unit tests with coverage
+        run: |
+          go test ./internal/... \
+            -v \
+            -race \
+            -coverprofile=coverage-unit.out \
+            -covermode=atomic \
+            -timeout=2m
+
+      - name: Download E2E coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-e2e
+          path: .
+
+      - name: Merge coverage profiles
+        run: |
+          # gocovmerge handles deduplication of overlapping file blocks,
+          # which naive concatenation does not. Both profiles use
+          # covermode=atomic so they are mergeable.
+          gocovmerge coverage-unit.out coverage-e2e.out > coverage.out
+          echo "Merged unit + E2E coverage."
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Enforce minimum coverage (85%)
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out \
+            | grep total \
+            | awk '{print $3}' \
+            | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          awk -v cov="$COVERAGE" 'BEGIN {
+            if (cov+0 < 85) {
+              print "Coverage " cov "% is below 85% minimum"
+              exit 1
+            }
+          }'
+
+  # ── Build (all target platforms) ─────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux,   goarch: amd64}
+          - {goos: linux,   goarch: arm64}
+          - {goos: darwin,  goarch: amd64}
+          - {goos: darwin,  goarch: arm64}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build \
+            -ldflags="-s -w -X main.version=${{ github.sha }} -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "dist/skein-${{ matrix.goos }}-${{ matrix.goarch }}" \
+            ./cmd/skein
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: skein-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+          retention-days: 7
+
+  # ── Dependency audit ─────────────────────────────────────────────────────────
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify go.mod / go.sum are tidy and tracked
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+          # git diff only sees tracked files — catch an untracked/missing go.sum too.
+          if git status --porcelain go.mod go.sum | grep -q .; then
+            echo "go.mod/go.sum are not committed or are out of date"
+            exit 1
+          fi
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

@@ -1,0 +1,173 @@
+// Command skein is a clangd-powered codebase exploration tool.
+//
+// Two modes:
+//
+//	skein              open the interactive TUI (default), starting in tangle view
+//	skein <symbol>     open the TUI with <symbol> as the first thread
+//	skein draw -m foo  fast mode: print a relationship tree to stdout and exit
+//
+// See docs/SPEC.md for the full design.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/fmbfs/skein/internal/compositor"
+	"github.com/fmbfs/skein/internal/lsp"
+	"github.com/fmbfs/skein/internal/tree"
+)
+
+// Build-time variables, injected via -ldflags.
+var (
+	version   = "dev"
+	buildDate = "unknown"
+	commit    = "none"
+)
+
+func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Printf("skein %s (commit %s, built %s)\n", version, commit, buildDate)
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "draw" {
+		if err := runDraw(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "skein:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// TODO: implement TUI mode dispatch. See docs/SPEC.md section 10.
+	fmt.Fprintln(os.Stderr, "skein: TUI mode not yet implemented — see docs/SPEC.md. Try `skein draw -m <method>`.")
+	os.Exit(1)
+}
+
+func runDraw(args []string) error {
+	fs := flag.NewFlagSet("draw", flag.ContinueOnError)
+	method := fs.String("m", "", "method/function name to draw")
+	class := fs.String("c", "", "class name to draw")
+	file := fs.String("f", "", "file to draw")
+	ply := fs.Int("ply", 1, "traversal depth (max 3)")
+	strands := fs.Int("strands", 50, "max visible nodes before truncation")
+	dbPath := fs.String("db", "", "path to compile_commands.json (default: search upward from cwd)")
+	clangdPath := fs.String("clangd", "", "clangd binary (default: $PATH)")
+	asJSON := fs.Bool("json", false, "JSON output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	_ = *strands // TODO: wire strand-limit truncation into the compositor.
+
+	set := 0
+	for _, v := range []string{*method, *class, *file} {
+		if v != "" {
+			set++
+		}
+	}
+	if set != 1 {
+		return fmt.Errorf("usage: skein draw (-m <method> | -c <class> | -f <file>) — exactly one required")
+	}
+
+	rootDir, err := resolveCompileCommandsDir(*dbPath)
+	if err != nil {
+		return err
+	}
+
+	clangd := *clangdPath
+	if clangd == "" {
+		clangd, err = exec.LookPath("clangd")
+		if err != nil {
+			return fmt.Errorf("clangd not found on $PATH — install clangd >= 14 or pass --clangd <path>")
+		}
+	}
+
+	var extraArgs []string
+	if driver, err := lsp.DetectCompilerDriver(filepath.Join(rootDir, "compile_commands.json")); err == nil {
+		extraArgs = append(extraArgs, "--query-driver="+driver)
+	}
+
+	client, err := lsp.New(clangd, rootDir, extraArgs...)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+
+	switch {
+	case *method != "":
+		mc := compositor.NewMethodCompositor(client, rootDir)
+		rm, err := mc.Build(*method, *ply)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return tree.PrintJSON(os.Stdout, rm)
+		}
+		tree.Print(os.Stdout, rm)
+
+	case *class != "":
+		cc := compositor.NewClassCompositor(client, rootDir)
+		cm, err := cc.Build(*class)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return tree.PrintClassJSON(os.Stdout, cm)
+		}
+		tree.PrintClass(os.Stdout, cm)
+
+	case *file != "":
+		path := *file
+		if !filepath.IsAbs(path) {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			path = filepath.Join(cwd, path)
+		}
+		fc := compositor.NewFileCompositor(client, rootDir)
+		fm, err := fc.Build(path)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			return tree.PrintFileJSON(os.Stdout, fm)
+		}
+		tree.PrintFile(os.Stdout, fm)
+	}
+	return nil
+}
+
+// resolveCompileCommandsDir returns the directory containing
+// compile_commands.json: explicitDB if set, otherwise the nearest one found
+// walking upward from the current working directory (mirrors clangd's own
+// lookup). Fails fast with an actionable error if none is found — see
+// docs/REVIEW.md §14 Q4.
+func resolveCompileCommandsDir(explicitDB string) (string, error) {
+	if explicitDB != "" {
+		return filepath.Dir(explicitDB), nil
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		candidate := filepath.Join(dir, "compile_commands.json")
+		if _, err := os.Stat(candidate); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf(
+		"no compile_commands.json found above the current directory.\n" +
+			"Generate one and try again:\n" +
+			"  CMake:     cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON\n" +
+			"  Non-CMake: bear -- make")
+}

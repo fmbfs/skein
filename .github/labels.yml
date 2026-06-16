@@ -1,0 +1,131 @@
+## GitHub Labels for skein
+##
+## Apply with:
+##   gh label create --force "$(jq -r '.name' <<< "$label")" \
+##     --color "$(jq -r '.color' <<< "$label")" \
+##     --description "$(jq -r '.description' <<< "$label")"
+##
+## Or run: scripts/setup-labels.sh
+
+# ── Type ──────────────────────────────────────────────────────────────────────
+# These mirror conventional commit types and appear on every PR.
+
+- name: "type: feat"
+  color: "0075ca"
+  description: "New feature"
+
+- name: "type: fix"
+  color: "d73a4a"
+  description: "Bug fix"
+
+- name: "type: refactor"
+  color: "e4e669"
+  description: "Code change, no behaviour change"
+
+- name: "type: test"
+  color: "0e8a16"
+  description: "Adding or improving tests"
+
+- name: "type: docs"
+  color: "cfd3d7"
+  description: "Documentation only"
+
+- name: "type: chore"
+  color: "fef2c0"
+  description: "Build system, CI, dependencies"
+
+- name: "type: perf"
+  color: "e99695"
+  description: "Performance improvement"
+
+# ── Component ─────────────────────────────────────────────────────────────────
+
+- name: "component: lsp"
+  color: "bfd4f2"
+  description: "clangd LSP client layer"
+
+- name: "component: compositor"
+  color: "bfd4f2"
+  description: "RelationMap assembly"
+
+- name: "component: tui"
+  color: "bfd4f2"
+  description: "bubbletea TUI (hunt mode)"
+
+- name: "component: tree"
+  color: "bfd4f2"
+  description: "Tree/JSON printer (sniff mode)"
+
+- name: "component: ci"
+  color: "bfd4f2"
+  description: "CI/CD pipelines"
+
+# ── Status ────────────────────────────────────────────────────────────────────
+
+- name: "status: triage"
+  color: "e4e669"
+  description: "Needs review / prioritisation"
+
+- name: "status: ready"
+  color: "0e8a16"
+  description: "Spec'd, ready to implement"
+
+- name: "status: blocked"
+  color: "d73a4a"
+  description: "Waiting on something external"
+
+- name: "status: wip"
+  color: "fbca04"
+  description: "Work in progress, not ready for review"
+
+- name: "status: stale"
+  color: "cfd3d7"
+  description: "No activity for 30+ days"
+
+# ── Priority ──────────────────────────────────────────────────────────────────
+
+- name: "priority: critical"
+  color: "b60205"
+  description: "Blocking a release"
+
+- name: "priority: high"
+  color: "d93f0b"
+  description: "Important, next in queue"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Normal queue"
+
+- name: "priority: low"
+  color: "c2e0c6"
+  description: "Nice to have"
+
+# ── Special ───────────────────────────────────────────────────────────────────
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention needed"
+
+- name: "breaking change"
+  color: "b60205"
+  description: "Breaks backwards compatibility"
+
+- name: "bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "This issue or PR already exists"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"

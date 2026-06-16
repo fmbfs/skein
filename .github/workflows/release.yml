@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'      # v0.1.0, v1.2.3 etc.
+      - 'v[0-9]+.[0-9]+.[0-9]+-rc*'  # v0.1.0-rc1
+
+permissions:
+  contents: write   # needed to create GitHub releases
+
+jobs:
+  release:
+    name: Release (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux,   goarch: amd64}
+          - {goos: linux,   goarch: arm64}
+          - {goos: darwin,  goarch: amd64}
+          - {goos: darwin,  goarch: arm64}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history for changelog generation
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release binary
+        env:
+          GOOS:        ${{ matrix.goos }}
+          GOARCH:      ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          BINARY="skein-${{ matrix.goos }}-${{ matrix.goarch }}"
+          go build \
+            -ldflags="-s -w \
+              -X main.version=${{ github.ref_name }} \
+              -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+              -X main.commit=${{ github.sha }}" \
+            -o "dist/${BINARY}" \
+            ./cmd/skein
+          # Checksum
+          cd dist && sha256sum "${BINARY}" > "${BINARY}.sha256"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true   # auto-generates from merged PRs
+          draft: ${{ contains(github.ref_name, '-rc') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') }}
