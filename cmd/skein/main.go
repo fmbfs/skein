@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/fmbfs/skein/internal/compositor"
 	"github.com/fmbfs/skein/internal/lsp"
@@ -49,7 +51,7 @@ func main() {
 func runDraw(args []string) error {
 	fs := flag.NewFlagSet("draw", flag.ContinueOnError)
 	method := fs.String("m", "", "method/function name to draw")
-	class := fs.String("c", "", "class name to draw")
+	class := fs.String("c", "", "class name to draw; with -m, scopes the method to this class")
 	file := fs.String("f", "", "file to draw")
 	ply := fs.Int("ply", 1, "traversal depth (max 3)")
 	strands := fs.Int("strands", 50, "max visible nodes before truncation")
@@ -67,8 +69,12 @@ func runDraw(args []string) error {
 			set++
 		}
 	}
-	if set != 1 {
-		return fmt.Errorf("usage: skein draw (-m <method> | -c <class> | -f <file>) — exactly one required")
+	// -c may accompany -m to scope a method query to one class (e.g.
+	// `-m Get -c DB`); it cannot accompany -f, and -c alone still means
+	// "draw this class". So the only valid two-flag combination is m+c.
+	validCombo := set == 1 || (*method != "" && *class != "" && *file == "")
+	if !validCombo {
+		return fmt.Errorf("usage: skein draw (-m <method> [-c <class>] | -c <class> | -f <file>)")
 	}
 
 	rootDir, err := resolveCompileCommandsDir(*dbPath)
@@ -98,9 +104,14 @@ func runDraw(args []string) error {
 	switch {
 	case *method != "":
 		mc := compositor.NewMethodCompositor(client, rootDir)
-		rm, err := mc.Build(*method, *ply)
+		rm, err := mc.Build(*method, *class, *ply)
 		if err != nil {
 			return err
+		}
+		if len(rm.Ambiguous) > 0 {
+			fmt.Fprintf(os.Stderr,
+				"skein: %q also found in %s — showing %s. Re-run with -c <class> to pick one.\n",
+				*method, joinQuoted(truncateList(rm.Ambiguous, 5)), rm.Container)
 		}
 		if *asJSON {
 			return tree.PrintJSON(os.Stdout, rm)
@@ -138,6 +149,29 @@ func runDraw(args []string) error {
 		tree.PrintFile(os.Stdout, fm)
 	}
 	return nil
+}
+
+// joinQuoted renders names as a comma-separated, double-quoted list for
+// stderr warnings, e.g. []string{"A","B"} -> `"A", "B"`.
+func joinQuoted(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = strconv.Quote(n)
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// truncateList caps names at n entries, appending an "and N more" marker —
+// real-world headers (gtest/gmock template instantiations, in particular)
+// can produce dozens of ambiguous containers, and dumping all of them makes
+// the warning unreadable instead of actionable.
+func truncateList(names []string, n int) []string {
+	if len(names) <= n {
+		return names
+	}
+	out := make([]string, n, n+1)
+	copy(out, names[:n])
+	return append(out, fmt.Sprintf("and %d more", len(names)-n))
 }
 
 // resolveCompileCommandsDir returns the directory containing

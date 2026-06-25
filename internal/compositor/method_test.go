@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/fmbfs/skein/internal/lsp"
@@ -122,7 +123,7 @@ func TestBuild_PicksConcreteImplOverInterfaceDeclaration(t *testing.T) {
 	}
 
 	mc := &MethodCompositor{base{Client: client, RootDir: dir}}
-	rm, err := mc.Build("processFrame", 1)
+	rm, err := mc.Build("processFrame", "", 1)
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestGroupIncoming(t *testing.T) {
 			FromRanges: []lsp.Range{{Start: lsp.Position{Line: 76}}},
 		},
 	}
-	groups := groupIncoming(calls, func(p string) string { return filepath.Base(p) })
+	groups := groupIncoming(calls, filepath.Base)
 
 	want := []CalledInGroup{
 		{File: "main.cpp", Lines: []int{8, 9}},
@@ -194,6 +195,143 @@ func TestGroupIncoming(t *testing.T) {
 	}
 	if !reflect.DeepEqual(groups, want) {
 		t.Errorf("groupIncoming = %+v, want %+v", groups, want)
+	}
+}
+
+// TestBuild_AmbiguousMethod_SurfacesOtherContainers is the regression test
+// for the leveldb `draw -m Get` finding from project-agnostic validation:
+// when two unrelated classes (DB and Version, in this fixture) both declare
+// a method named "Get" and no -c filter is given, bestDefinition's
+// "first source-file candidate wins" rule picks one of them by
+// workspace/symbol response order — not by relevance. Build must at least
+// surface the other container(s) via rm.Ambiguous so the caller (main.go)
+// can warn the user and point at -c, instead of silently returning a
+// possibly-wrong symbol with no indication another candidate existed.
+func TestBuild_AmbiguousMethod_SurfacesOtherContainers(t *testing.T) {
+	dir := t.TempDir()
+	dbHeader := writeTempFile(t, dir, "db.h", "virtual Status Get(const Slice& key) = 0;\n")
+	versionImpl := writeTempFile(t, dir, "version_set.cc", "Status Version::Get(const Slice& key) {\n  return ok();\n}\n")
+
+	client := &fakeClient{
+		workspaceSymbolSeq: [][]lsp.SymbolInformation{{
+			{
+				Name: "Get", Kind: lsp.SymbolKindMethod, ContainerName: "leveldb::DB",
+				Location: lsp.Location{URI: "file://" + dbHeader, Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 15}}},
+			},
+			{
+				Name: "Get", Kind: lsp.SymbolKindMethod, ContainerName: "leveldb::Version",
+				Location: lsp.Location{URI: "file://" + versionImpl, Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 15}}},
+			},
+		}},
+		prepareItems: map[string][]lsp.CallHierarchyItem{
+			posKey(versionImpl, lsp.Position{Line: 0, Character: 15}): {{
+				Name: "Version::Get", Kind: lsp.SymbolKindMethod, URI: "file://" + versionImpl,
+				Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 0}, End: lsp.Position{Line: 2, Character: 1}},
+			}},
+		},
+		outgoingErr: fmt.Errorf("method not found"),
+	}
+
+	mc := &MethodCompositor{base{Client: client, RootDir: dir}}
+	rm, err := mc.Build("Get", "", 1)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	if rm.Container != "leveldb::Version" {
+		t.Errorf("Container = %q, want leveldb::Version (the source-file candidate)", rm.Container)
+	}
+	if want := []string{"leveldb::DB"}; !reflect.DeepEqual(rm.Ambiguous, want) {
+		t.Errorf("Ambiguous = %v, want %v — caller needs this to warn the user another candidate exists", rm.Ambiguous, want)
+	}
+}
+
+// TestBuild_ClassFilter_ScopesToRequestedContainer is the regression test
+// for the -c fix: with a class filter, Build must resolve to the candidate
+// in that container even when bestDefinition's source-file preference would
+// otherwise have picked a different one, and Ambiguous must be empty since
+// the caller already disambiguated.
+func TestBuild_ClassFilter_ScopesToRequestedContainer(t *testing.T) {
+	dir := t.TempDir()
+	dbHeader := writeTempFile(t, dir, "db.h", "virtual Status Get(const Slice& key) = 0;\n")
+	versionImpl := writeTempFile(t, dir, "version_set.cc", "Status Version::Get(const Slice& key) {\n  return ok();\n}\n")
+
+	client := &fakeClient{
+		workspaceSymbolSeq: [][]lsp.SymbolInformation{{
+			{
+				Name: "Get", Kind: lsp.SymbolKindMethod, ContainerName: "leveldb::DB",
+				Location: lsp.Location{URI: "file://" + dbHeader, Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 15}}},
+			},
+			{
+				Name: "Get", Kind: lsp.SymbolKindMethod, ContainerName: "leveldb::Version",
+				Location: lsp.Location{URI: "file://" + versionImpl, Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 15}}},
+			},
+		}},
+		prepareItems: map[string][]lsp.CallHierarchyItem{
+			posKey(dbHeader, lsp.Position{Line: 0, Character: 15}): {{
+				Name: "DB::Get", Kind: lsp.SymbolKindMethod, URI: "file://" + dbHeader,
+				Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 0}, End: lsp.Position{Line: 0, Character: 40}},
+			}},
+		},
+		outgoingErr: fmt.Errorf("method not found"),
+	}
+
+	mc := &MethodCompositor{base{Client: client, RootDir: dir}}
+	rm, err := mc.Build("Get", "DB", 1)
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	if rm.DefinedAt.Path != "db.h" {
+		t.Errorf("DefinedAt.Path = %q, want db.h (the -c DB scoped candidate)", rm.DefinedAt.Path)
+	}
+	if len(rm.Ambiguous) != 0 {
+		t.Errorf("Ambiguous = %v, want empty — caller already disambiguated with -c", rm.Ambiguous)
+	}
+}
+
+// TestBuild_ClassFilter_NoMatch_ListsAvailableContainers checks that an
+// unmatched -c filter fails fast with the actual containers found, instead
+// of a bare "not found" — the whole point of -c is helping the user pick
+// correctly, so the error needs to show what was available.
+func TestBuild_ClassFilter_NoMatch_ListsAvailableContainers(t *testing.T) {
+	dir := t.TempDir()
+	dbHeader := writeTempFile(t, dir, "db.h", "virtual Status Get(const Slice& key) = 0;\n")
+
+	client := &fakeClient{
+		workspaceSymbolSeq: [][]lsp.SymbolInformation{{
+			{
+				Name: "Get", Kind: lsp.SymbolKindMethod, ContainerName: "leveldb::DB",
+				Location: lsp.Location{URI: "file://" + dbHeader, Range: lsp.Range{Start: lsp.Position{Line: 0, Character: 15}}},
+			},
+		}},
+	}
+
+	mc := &MethodCompositor{base{Client: client, RootDir: dir}}
+	_, err := mc.Build("Get", "NoSuchClass", 1)
+	if err == nil {
+		t.Fatal("Build returned nil error, want an error naming the available containers")
+	}
+	if got := err.Error(); !strings.Contains(got, "leveldb::DB") {
+		t.Errorf("error = %q, want it to mention leveldb::DB (the actual container found)", got)
+	}
+}
+
+func TestContainerMatches(t *testing.T) {
+	cases := []struct {
+		container, filter string
+		want              bool
+	}{
+		{"leveldb::DB", "DB", true},
+		{"leveldb::DB", "leveldb::DB", true},
+		{"leveldb::DB", "Version", false},
+		{"DB", "DB", true},
+		{"testing::internal::BuiltInDefaultValue<int>", "BuiltInDefaultValue<int>", true},
+	}
+	for _, c := range cases {
+		if got := containerMatches(c.container, c.filter); got != c.want {
+			t.Errorf("containerMatches(%q, %q) = %v, want %v", c.container, c.filter, got, c.want)
+		}
 	}
 }
 

@@ -33,7 +33,10 @@ linters-settings:
       - commentedOutCode   # we comment out TODOs intentionally
 
   misspell:
-    locale: US
+    # The project consistently writes British English (behaviour, colour,
+    # modelling — see SPEC.md, REVIEW.md, CONTRIBUTING.md). US was fighting
+    # the established voice, not catching real typos.
+    locale: UK
 
 issues:
   exclude-rules:

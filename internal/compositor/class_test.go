@@ -18,7 +18,7 @@ type classFakeClient struct {
 	prepareTypeItems map[string][]lsp.TypeHierarchyItem // key: posKey(path, pos)
 	supertypes       map[string][]lsp.TypeHierarchyItem // key: item.Name
 	subtypes         map[string][]lsp.TypeHierarchyItem // key: item.Name
-	documentSymbols  map[string][]lsp.SymbolInformation  // key: path
+	documentSymbols  map[string][]lsp.SymbolInformation // key: path
 }
 
 func (c *classFakeClient) PrepareTypeHierarchy(path string, pos lsp.Position) ([]lsp.TypeHierarchyItem, error) {

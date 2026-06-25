@@ -63,7 +63,7 @@ func TestDrawProcessFrame(t *testing.T) {
 	defer client.Close()
 
 	mc := compositor.NewMethodCompositor(client, buildDir)
-	rm, err := mc.Build("processFrame", 1)
+	rm, err := mc.Build("processFrame", "", 1)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

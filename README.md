@@ -153,6 +153,7 @@ go build ./cmd/skein
 
 ```bash
 skein draw -m foo         # draw: all definitions and call sites of foo
+skein draw -m foo -c Bar  # draw: foo, scoped to class Bar (disambiguates overloaded/common names)
 skein draw -c Bar         # draw: class Bar — hierarchy, members
 skein draw -f Pipeline.cpp # draw: all symbols in file
 skein draw -m foo --json  # draw: JSON output

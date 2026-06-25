@@ -28,6 +28,15 @@ type RelationMap struct {
 	Signature  string // source line at DefinedAt, if available
 	CalledIn   []CalledInGroup
 	Calls      []string
+
+	// Container is the class/namespace the resolved candidate belongs to
+	// (workspace/symbol's containerName), empty for free functions.
+	Container string
+	// Ambiguous lists other distinct containers that also declared a method
+	// or function named ThreadName, when the caller didn't disambiguate with
+	// a class filter. Empty means the resolution was unambiguous (or already
+	// scoped by -c). See bestDefinition in method.go.
+	Ambiguous []string
 }
 
 // CalledInTotal returns the total number of call sites across all files.
