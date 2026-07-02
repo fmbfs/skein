@@ -16,6 +16,11 @@ type bundle struct {
 	origin threadState
 	back   []threadState
 	fwd    []threadState
+
+	// pinned distinguishes a user-created bundle (via the p key) from the
+	// initial "tangle" entry bundle, so pinCurrent can tell whether p
+	// should create a new tab or toggle the current one back off.
+	pinned bool
 }
 
 // renderBundleTabs renders the tab bar: one tab per bundle plus a trailing
@@ -42,7 +47,7 @@ func renderBundleTabs(bundles []bundle, active int) string {
 // two pins of the same symbol taken at different ply/filter settings are a
 // legitimate workflow (compare before/after a filter change).
 func pinBundle(bundles []bundle, name string, t threadState) ([]bundle, int) {
-	bundles = append(bundles, bundle{name: name, thread: t, origin: t})
+	bundles = append(bundles, bundle{name: name, thread: t, origin: t, pinned: true})
 	return bundles, len(bundles) - 1
 }
 

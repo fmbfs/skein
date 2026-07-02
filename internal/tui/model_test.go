@@ -409,6 +409,45 @@ func TestPinCurrent(t *testing.T) {
 	if len(got.bundles) != 2 || got.bundles[1].name != "Foo" {
 		t.Errorf("pinCurrent bundles = %+v, want a new bundle named Foo", got.bundles)
 	}
+	if !got.bundles[1].pinned {
+		t.Error("pinCurrent should mark the new bundle as pinned")
+	}
+	if got.activeBundle != 1 {
+		t.Errorf("activeBundle after pinCurrent = %d, want 1 (switch to the new tab)", got.activeBundle)
+	}
+}
+
+// TestPinCurrentTogglesUnpinOnAlreadyPinnedTab is the regression test for
+// a reported bug: "we are unable to unpin". Pressing p repeatedly kept
+// stacking indistinguishable duplicate bundles with no obvious way back —
+// pressing p while already on a pinned tab must instead close it (unpin),
+// mirroring the x key rather than creating yet another duplicate.
+func TestPinCurrentTogglesUnpinOnAlreadyPinnedTab(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{name: "Foo"}
+	m = m.pinCurrent() // pin -> now on the new "Foo" tab
+	if len(m.bundles) != 2 {
+		t.Fatalf("expected 2 bundles after pinning, got %d", len(m.bundles))
+	}
+
+	m = m.pinCurrent() // press p again on the pinned tab -> should unpin
+	if len(m.bundles) != 1 {
+		t.Errorf("bundles after re-pressing p on a pinned tab = %+v, want it unpinned back to 1", m.bundles)
+	}
+}
+
+// TestPinCurrentDoesNotToggleFromTangleTab confirms the tangle (unpinned
+// entry) tab is never itself treated as "pinned" — pressing p there always
+// creates a new bundle rather than trying to close the tangle.
+func TestPinCurrentDoesNotToggleFromTangleTab(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{name: "Foo"}
+	m = m.pinCurrent()
+	m.activeBundle = 0 // back to tangle
+	m = m.pinCurrent()
+	if len(m.bundles) != 3 {
+		t.Errorf("bundles after pinning again from tangle = %+v, want 3 (a new pin, not an unpin)", m.bundles)
+	}
 }
 
 func TestFollowSearchResultNoSelection(t *testing.T) {

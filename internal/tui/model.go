@@ -554,7 +554,16 @@ func (m Model) spoolReset() Model {
 
 // pinCurrent snapshots the active thread into a brand-new bundle tab
 // (docs/SPEC.md `p` key) without disturbing the tab it was pinned from.
+// Pressing p again while already on a pinned tab instead unpins it (closes
+// it) — without this, repeatedly pressing p (e.g. out of habit, or
+// uncertainty about whether it "took") kept stacking indistinguishable
+// duplicate tabs with no way to remove them short of knowing the separate
+// x key, which was reported as "we are unable to unpin".
 func (m Model) pinCurrent() Model {
+	if m.bundles[m.activeBundle].pinned {
+		m.bundles, m.activeBundle = closeBundle(m.bundles, m.activeBundle, m.activeBundle)
+		return m
+	}
 	t := *m.activeThread()
 	m.bundles, m.activeBundle = pinBundle(m.bundles, t.name, t)
 	return m

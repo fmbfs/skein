@@ -23,6 +23,11 @@ func TestHintsForFocus(t *testing.T) {
 	if !strings.Contains(mapHints, "follow") {
 		t.Errorf("map hints = %q, want it to mention follow", mapHints)
 	}
+	for _, want := range []string{"quit", "help", "unpin"} {
+		if !strings.Contains(mapHints, want) {
+			t.Errorf("map hints = %q, want it to mention %q (reported missing from the always-visible footer)", mapHints, want)
+		}
+	}
 }
 
 func TestKeyBindingsMatchExpectedRunes(t *testing.T) {

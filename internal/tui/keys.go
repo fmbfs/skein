@@ -145,10 +145,12 @@ func hints(focus focusArea, hasResults bool) string {
 	}
 	return renderHints([][2]string{
 		{"enter/l", "follow"},
-		{"tab", "panel"},
-		{"/", "search"},
 		{"p", "pin"},
+		{"x", "unpin"},
 		{"u/h", "back"},
+		{"/", "search"},
+		{"?", "help"},
+		{"q", "quit"},
 	})
 }
 
