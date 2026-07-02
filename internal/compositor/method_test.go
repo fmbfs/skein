@@ -147,7 +147,7 @@ func TestBuild_PicksConcreteImplOverInterfaceDeclaration(t *testing.T) {
 // workspace/symbol poll to see *any* match can be a partial index snapshot
 // (e.g. only the header declaration), with the .cpp definition(s) landing a
 // moment later. findWorkspaceSymbol must wait for the result count to
-// stabilize, not return on the first non-empty hit.
+// stabilise, not return on the first non-empty hit.
 func TestFindWorkspaceSymbol_WaitsForStableCount(t *testing.T) {
 	headerOnly := []lsp.SymbolInformation{{Name: "foo", Kind: lsp.SymbolKindMethod, Location: lsp.Location{URI: "file:///a.h"}}}
 	full := []lsp.SymbolInformation{
@@ -159,7 +159,7 @@ func TestFindWorkspaceSymbol_WaitsForStableCount(t *testing.T) {
 		workspaceSymbolSeq: [][]lsp.SymbolInformation{
 			{},         // not indexed yet
 			headerOnly, // partial: only the header declaration so far
-			full,       // stabilized: the .cpp definition has landed too
+			full,       // stabilised: the .cpp definition has landed too
 			full,
 			full,
 			full,

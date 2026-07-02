@@ -99,7 +99,7 @@ func TestPrint_AllSectionsOrder(t *testing.T) {
 	definedIdx := strings.Index(got, "defined in")
 	calledIdx := strings.Index(got, "called in")
 	callsIdx := strings.Index(got, "calls\n")
-	if !(definedIdx < calledIdx && calledIdx < callsIdx) {
+	if definedIdx >= calledIdx || calledIdx >= callsIdx {
 		t.Errorf("expected section order defined-in < called-in < calls, got:\n%s", got)
 	}
 }

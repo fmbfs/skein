@@ -1,0 +1,44 @@
+name: Publish CI Image
+
+# Builds and pushes ghcr.io/fmbfs/skein-ci, the E2E test container image
+# (Dockerfile.ci). Building/pushing from within Actions (rather than a local
+# `docker push`) auto-links the resulting package to this repository, which
+# grants the default GITHUB_TOKEN read access to pull it in the CI workflow —
+# no manual visibility/access changes needed.
+#
+# Rebuild when: clangd version bumps, new system deps needed (see
+# Dockerfile.ci header), or manually via workflow_dispatch.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.ci'
+      - '.github/workflows/publish-ci-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build and push skein-ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.ci
+          push: true
+          tags: ghcr.io/fmbfs/skein-ci:latest

@@ -11,7 +11,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+  # ── E2E tests (independent of Unit Tests — see below) ────────────────────────
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/fmbfs/skein-ci:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build skein
+        run: go build -o /usr/local/bin/skein ./cmd/skein
+      - name: Generate compile_commands.json for fixture project
+        working-directory: tests/fixtures/simple_cpp
+        run: |
+          cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cp build/compile_commands.json .
+      - name: Run E2E tests with coverage
+        run: |
+          go test ./tests/e2e/... \
+            -v \
+            -coverpkg=./internal/... \
+            -coverprofile=coverage-e2e.out \
+            -covermode=atomic \
+            -timeout=5m
+      - name: Upload E2E coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-e2e
+          path: coverage-e2e.out
+          retention-days: 1
+
   # ── Unit tests + coverage enforcement ───────────────────────────────────────
+  # Runs standalone (no longer merges E2E's coverage): unit-only coverage
+  # comfortably clears the 85% gate on its own, and decoupling avoids Unit
+  # Tests blocking on E2E's container-image dependency.
   unit:
     name: Unit Tests
     runs-on: ubuntu-latest
@@ -86,3 +139,33 @@ jobs:
           name: skein-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/
           retention-days: 7
+
+  # ── Dependency audit ─────────────────────────────────────────────────────────
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify go.mod / go.sum are tidy and tracked
+        run: |
+          go mod tidy
+          # go.sum may legitimately not exist (zero external dependencies) —
+          # only diff/status-check it if it's present, otherwise `git diff`
+          # fatals on a pathspec that has never existed in the repo.
+          files="go.mod"
+          if [ -f go.sum ]; then
+            files="go.mod go.sum"
+          fi
+          git diff --exit-code -- $files
+          if git status --porcelain -- $files | grep -q .; then
+            echo "go.mod/go.sum are not committed or are out of date"
+            exit 1
+          fi
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

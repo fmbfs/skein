@@ -59,7 +59,7 @@ func (b *base) relPath(abs string) string {
 
 // findWorkspaceSymbol retries workspace/symbol until a name-matching result
 // appears, then keeps polling a little longer until the result count
-// stabilizes (or workspaceSymbolTimeout elapses).
+// stabilises (or workspaceSymbolTimeout elapses).
 //
 // Indexing is incremental: the first poll to see *any* match can be a
 // partial snapshot — e.g. only the header declaration indexed so far, with
