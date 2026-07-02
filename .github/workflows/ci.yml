@@ -40,7 +40,13 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build skein
-        run: go build -o /usr/local/bin/skein ./cmd/skein
+        # This job runs inside a container (unlike the other jobs), so the
+        # checked-out repo is owned by a different UID than the container's
+        # git sees it as — triggering "dubious ownership"/VCS-status errors
+        # during `go build`'s VCS stamping. Mark it safe explicitly.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          go build -o /usr/local/bin/skein ./cmd/skein
       - name: Generate compile_commands.json for fixture project
         working-directory: tests/fixtures/simple_cpp
         run: |
