@@ -25,19 +25,25 @@ func (m Model) View() string {
 	b.WriteString(renderBundleTabs(m.bundles, m.activeBundle))
 	b.WriteByte('\n')
 
+	showSearch := m.focus == focusSearch || len(m.search.results) > 0
+	reserved := 0
+	if showSearch {
+		reserved = searchBarLineCount(&m.search)
+	}
+
 	if m.help {
 		b.WriteString(m.renderHelp())
 	} else {
-		b.WriteString(m.renderPanels(t))
+		b.WriteString(m.renderPanels(t, reserved))
 	}
 	b.WriteByte('\n')
 
-	if m.focus == focusSearch || len(m.search.results) > 0 {
+	if showSearch {
 		b.WriteString(renderSearchBar(&m.search, m.width))
 		b.WriteByte('\n')
 	}
 
-	b.WriteString(hints(m.focus))
+	b.WriteString(hints(m.focus, len(m.search.results) > 0))
 	return b.String()
 }
 
@@ -55,9 +61,9 @@ func (m Model) renderStatusBar(t *threadState) string {
 	return statusBarStyle.Width(m.width).Render(status)
 }
 
-func (m Model) renderPanels(t *threadState) string {
+func (m Model) renderPanels(t *threadState, reserved int) string {
 	panelWidth := (m.width - 4) / 2
-	panelHeight := m.height - 6
+	panelHeight := m.height - 6 - reserved
 	if panelHeight < 3 {
 		panelHeight = 3
 	}

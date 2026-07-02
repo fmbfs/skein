@@ -128,11 +128,17 @@ var keys = keyMap{
 
 // hints returns the footer key-hint line shown at the bottom of the screen,
 // tailored to the current focus (search bar shows fewer/different hints
-// than the map panel).
-func hints(focus focusArea) string {
+// than the map panel). hasResults switches the ↑/↓ hint's description
+// between "select result" and "recall search" depending on whether the
+// search box currently has anything to navigate.
+func hints(focus focusArea, hasResults bool) string {
 	if focus == focusSearch {
+		upDownHint := "select result"
+		if !hasResults {
+			upDownHint = "recall search"
+		}
 		return renderHints([][2]string{
-			{"↑/↓", "select result"},
+			{"↑/↓", upDownHint},
 			{"enter", "open"},
 			{"esc", "cancel"},
 		})

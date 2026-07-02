@@ -453,6 +453,20 @@ func TestHandleSearchKeyEscape(t *testing.T) {
 	}
 }
 
+// TestHandleSearchKeyEscapePushesHistory confirms cancelling a search with
+// Escape still remembers the typed query for later recall via up/down —
+// not just searches that were actually followed.
+func TestHandleSearchKeyEscapePushesHistory(t *testing.T) {
+	m := newTestModel()
+	m.focus = focusSearch
+	m.search.input.SetValue("query")
+	got, _ := m.handleSearchKey(tea.KeyMsg{Type: tea.KeyEsc})
+	gm := got.(Model)
+	if len(gm.search.history) != 1 || gm.search.history[0] != "query" {
+		t.Errorf("history after escape = %v, want [query]", gm.search.history)
+	}
+}
+
 func TestHandleSearchKeyResultNav(t *testing.T) {
 	m := newTestModel()
 	m.focus = focusSearch
@@ -468,6 +482,30 @@ func TestHandleSearchKeyResultNav(t *testing.T) {
 	gm2 := got2.(Model)
 	if gm2.search.cursor != 0 {
 		t.Errorf("cursor = %d, want 0 after ResultUp", gm2.search.cursor)
+	}
+}
+
+// TestHandleSearchKeyResultNavFallsBackToHistory confirms that when there
+// are no results to navigate (nothing typed, or the last query came back
+// empty), ResultUp/ResultDown instead recall past searches — the
+// shell-history behaviour requested directly by a user ("we need to be
+// able to see last searched using arrows").
+func TestHandleSearchKeyResultNavFallsBackToHistory(t *testing.T) {
+	m := newTestModel()
+	m.focus = focusSearch
+	m.search.pushHistory("earlier-query")
+	// No results currently loaded.
+
+	got, _ := m.handleSearchKey(tea.KeyMsg{Type: tea.KeyUp})
+	gm := got.(Model)
+	if gm.search.input.Value() != "earlier-query" {
+		t.Errorf("input after ResultUp with no results = %q, want %q", gm.search.input.Value(), "earlier-query")
+	}
+
+	got2, _ := gm.handleSearchKey(tea.KeyMsg{Type: tea.KeyDown})
+	gm2 := got2.(Model)
+	if gm2.search.input.Value() != "" {
+		t.Errorf("input after ResultDown past newest = %q, want empty", gm2.search.input.Value())
 	}
 }
 
@@ -517,6 +555,19 @@ func TestFollowSearchResultDispatchesByKind(t *testing.T) {
 	_, cmd2 := m2.followSearchResult()
 	if cmd2 == nil {
 		t.Error("expected a non-nil cmd for a matched method result")
+	}
+}
+
+// TestFollowSearchResultPushesHistory confirms selecting a result records
+// the typed query for later recall via up/down arrow history.
+func TestFollowSearchResultPushesHistory(t *testing.T) {
+	m := newTestModel()
+	m.search.input.SetValue("MyClass")
+	m.search.results = []lsp.SymbolInformation{{Name: "MyClass", Kind: lsp.SymbolKindClass}}
+	got, _ := m.followSearchResult()
+	gm := got.(Model)
+	if len(gm.search.history) != 1 || gm.search.history[0] != "MyClass" {
+		t.Errorf("history after followSearchResult = %v, want [MyClass]", gm.search.history)
 	}
 }
 
