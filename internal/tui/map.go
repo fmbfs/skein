@@ -1,0 +1,288 @@
+// Package tui implements the interactive exploration UI (the default mode),
+// built on bubbletea + lipgloss. Visual design is inspired by lazygit.
+//
+// See docs/SPEC.md sections 4-7 for layout and keybindings.
+package tui
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/fmbfs/skein/internal/compositor"
+)
+
+// followKind identifies which compositor to dispatch to when the user
+// follows a Node — see docs/SPEC.md section 3 (thread kinds).
+type followKind int
+
+const (
+	followNone followKind = iota
+	followMethod
+	followClass
+	followFile
+)
+
+// direction labels a Node for direction-filter colouring and for the i/o
+// toggle shortcuts (docs/SPEC.md section 5). directionNeutral covers
+// section headers and members that aren't inherently a call edge.
+type direction int
+
+const (
+	directionNeutral direction = iota
+	directionIncoming
+	directionOutgoing
+)
+
+// Node is the unified tree element the map panel renders, built by
+// adapting whichever compositor result (RelationMap/ClassMap/FileMap) is
+// current into one shape. Only Follow != followNone nodes react to <enter>.
+type Node struct {
+	Label     string
+	Direction direction
+	Follow    followKind
+	Target    string // symbol/class/file name or path to follow into
+	ClassCtx  string // class filter, to disambiguate a method follow
+	Children  []Node
+}
+
+// flatNode is a Node flattened for cursor-addressed rendering/selection —
+// bubbletea models need a flat, indexable list, not a recursive tree.
+type flatNode struct {
+	node  *Node
+	depth int
+	last  []bool // per-depth-level "is this branch the last sibling" flags
+}
+
+// flatten walks nodes depth-first into a flat, renderable slice.
+func flatten(nodes []Node) []flatNode {
+	var out []flatNode
+	var walk func(ns []Node, depth int, prefix []bool)
+	walk = func(ns []Node, depth int, prefix []bool) {
+		for i := range ns {
+			isLast := i == len(ns)-1
+			line := append(append([]bool{}, prefix...), isLast)
+			out = append(out, flatNode{node: &ns[i], depth: depth, last: line})
+			if len(ns[i].Children) > 0 {
+				walk(ns[i].Children, depth+1, line)
+			}
+		}
+	}
+	walk(nodes, 0, nil)
+	return out
+}
+
+// renderMap renders the flattened node list as a tree(1)-style Unicode
+// tree, highlighting the node at cursor and colour-coding by direction.
+func renderMap(nodes []Node, cursor, height int) string {
+	flat := flatten(nodes)
+	if len(flat) == 0 {
+		return mutedStyle.Render("(empty)")
+	}
+
+	var b strings.Builder
+	start, end := viewport(len(flat), cursor, height)
+	for i := start; i < end; i++ {
+		fn := flat[i]
+		b.WriteString(renderLine(fn, i == cursor))
+		if i != end-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// viewport computes the [start,end) window of a height-limited scrolling
+// list that keeps cursor visible, clamped to the list bounds.
+func viewport(total, cursor, height int) (int, int) {
+	if height <= 0 || total <= height {
+		return 0, total
+	}
+	start := cursor - height/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + height
+	if end > total {
+		end = total
+		start = end - height
+	}
+	return start, end
+}
+
+func renderLine(fn flatNode, selected bool) string {
+	var prefix strings.Builder
+	for i := 0; i < fn.depth; i++ {
+		switch {
+		case i == fn.depth-1 && fn.last[i]:
+			prefix.WriteString("└── ")
+		case i == fn.depth-1:
+			prefix.WriteString("├── ")
+		case fn.last[i]:
+			prefix.WriteString("    ")
+		default:
+			prefix.WriteString("│   ")
+		}
+	}
+
+	label := fn.node.Label
+	switch fn.node.Direction {
+	case directionIncoming:
+		label = incomingStyle.Render(label)
+	case directionOutgoing:
+		label = outgoingStyle.Render(label)
+	case directionNeutral:
+		// no colouring
+	}
+
+	line := prefix.String() + label
+	if selected {
+		return selectedLineStyle.Render(line)
+	}
+	return line
+}
+
+// buildMethodTree adapts a composed RelationMap into the unified Node tree
+// for a method/function thread (docs/SPEC.md section 4 example layout).
+func buildMethodTree(rm *compositor.RelationMap) []Node {
+	var nodes []Node
+
+	if rm.DefinedAt.Path != "" {
+		defined := Node{Label: "defined in"}
+		loc := Node{
+			Label:  fmt.Sprintf("%s :%d", rm.DefinedAt.Path, rm.DefinedAt.Line),
+			Follow: followFile,
+			Target: rm.DefinedAt.Path,
+		}
+		defined.Children = append(defined.Children, loc)
+		if rm.Signature != "" {
+			defined.Children = append(defined.Children, Node{Label: rm.Signature})
+		}
+		nodes = append(nodes, defined)
+	}
+
+	if len(rm.CalledIn) > 0 {
+		calledIn := Node{
+			Label:     fmt.Sprintf("called in (%d)", rm.CalledInTotal()),
+			Direction: directionIncoming,
+		}
+		for _, group := range rm.CalledIn {
+			fileNode := Node{Label: group.File, Direction: directionIncoming}
+			for _, line := range group.Lines {
+				fileNode.Children = append(fileNode.Children, Node{
+					Label:     fmt.Sprintf(":%d", line),
+					Direction: directionIncoming,
+					// Following a call site opens that file — skein doesn't
+					// yet resolve the enclosing caller symbol at a bare
+					// location (see docs/SPEC.md section 8, path-finding).
+					Follow: followFile,
+					Target: group.File,
+				})
+			}
+			calledIn.Children = append(calledIn.Children, fileNode)
+		}
+		nodes = append(nodes, calledIn)
+	}
+
+	if len(rm.Calls) > 0 {
+		calls := Node{
+			Label:     fmt.Sprintf("calls (%d)", len(rm.Calls)),
+			Direction: directionOutgoing,
+		}
+		for _, callee := range rm.Calls {
+			calls.Children = append(calls.Children, Node{
+				Label:     callee,
+				Direction: directionOutgoing,
+				Follow:    followMethod,
+				Target:    callee,
+			})
+		}
+		nodes = append(nodes, calls)
+	}
+
+	if rm.Container != "" {
+		nodes = append(nodes, Node{
+			Label:  "member of " + rm.Container,
+			Follow: followClass,
+			Target: rm.Container,
+		})
+	}
+
+	return nodes
+}
+
+// buildClassTree adapts a composed ClassMap into the unified Node tree.
+func buildClassTree(cm *compositor.ClassMap) []Node {
+	var nodes []Node
+
+	if cm.DefinedAt.Path != "" {
+		nodes = append(nodes, Node{
+			Label:  fmt.Sprintf("defined in %s :%d", cm.DefinedAt.Path, cm.DefinedAt.Line),
+			Follow: followFile,
+			Target: cm.DefinedAt.Path,
+		})
+	}
+
+	if len(cm.Inherits) > 0 {
+		inherits := Node{Label: "inherits", Direction: directionOutgoing}
+		for _, base := range cm.Inherits {
+			inherits.Children = append(inherits.Children, Node{
+				Label: base, Direction: directionOutgoing,
+				Follow: followClass, Target: base,
+			})
+		}
+		nodes = append(nodes, inherits)
+	}
+
+	if len(cm.InheritedBy) > 0 {
+		inheritedBy := Node{Label: "inherited by", Direction: directionIncoming}
+		for _, derived := range cm.InheritedBy {
+			inheritedBy.Children = append(inheritedBy.Children, Node{
+				Label: derived, Direction: directionIncoming,
+				Follow: followClass, Target: derived,
+			})
+		}
+		nodes = append(nodes, inheritedBy)
+	}
+
+	if len(cm.Members) > 0 {
+		members := Node{Label: fmt.Sprintf("members (%d)", len(cm.Members))}
+		members.Children = buildMemberNodes(cm.Members, cm.ThreadName)
+		nodes = append(nodes, members)
+	}
+
+	return nodes
+}
+
+// buildFileTree adapts a composed FileMap into the unified Node tree.
+func buildFileTree(fm *compositor.FileMap) []Node {
+	return buildMemberNodes(fm.Symbols, "")
+}
+
+// buildMemberNodes converts compositor.Member entries (methods/fields,
+// possibly nested under classes) into followable Nodes. classCtx scopes a
+// method follow to the immediately-enclosing class, if any, matching
+// draw mode's -c disambiguation.
+func buildMemberNodes(members []compositor.Member, classCtx string) []Node {
+	nodes := make([]Node, 0, len(members))
+	for _, m := range members {
+		n := Node{Label: fmt.Sprintf("%s [%s]", m.Name, m.Kind)}
+		switch m.Kind {
+		case "method", "function", "constructor":
+			n.Follow = followMethod
+			n.Target = m.Name
+			n.ClassCtx = classCtx
+		case "class", "struct":
+			n.Follow = followClass
+			n.Target = m.Name
+		}
+		if len(m.Children) > 0 {
+			childCtx := classCtx
+			if m.Kind == "class" || m.Kind == "struct" {
+				childCtx = m.Name
+			}
+			n.Children = buildMemberNodes(m.Children, childCtx)
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes
+}

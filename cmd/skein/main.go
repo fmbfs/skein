@@ -21,6 +21,9 @@ import (
 	"github.com/fmbfs/skein/internal/compositor"
 	"github.com/fmbfs/skein/internal/lsp"
 	"github.com/fmbfs/skein/internal/tree"
+	"github.com/fmbfs/skein/internal/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Build-time variables, injected via -ldflags.
@@ -43,9 +46,44 @@ func main() {
 		return
 	}
 
-	// TODO: implement TUI mode dispatch. See docs/SPEC.md section 10.
-	fmt.Fprintln(os.Stderr, "skein: TUI mode not yet implemented — see docs/SPEC.md. Try `skein draw -m <method>`.")
-	os.Exit(1)
+	var symbol, pinned string
+	if len(os.Args) > 1 {
+		symbol = os.Args[1]
+	}
+	if len(os.Args) > 2 {
+		pinned = os.Args[2]
+	}
+	if err := runTUI(symbol, pinned); err != nil {
+		fmt.Fprintln(os.Stderr, "skein:", err)
+		os.Exit(1)
+	}
+}
+
+func runTUI(symbol, pinned string) error {
+	rootDir, err := resolveCompileCommandsDir("")
+	if err != nil {
+		return err
+	}
+
+	clangd, err := exec.LookPath("clangd")
+	if err != nil {
+		return fmt.Errorf("clangd not found on $PATH — install clangd >= 14 or pass --clangd <path>")
+	}
+
+	var extraArgs []string
+	if driver, err := lsp.DetectCompilerDriver(filepath.Join(rootDir, "compile_commands.json")); err == nil {
+		extraArgs = append(extraArgs, "--query-driver="+driver)
+	}
+
+	client, err := lsp.New(clangd, rootDir, extraArgs...)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+
+	m := tui.New(client, rootDir, symbol, pinned)
+	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	return err
 }
 
 func runDraw(args []string) error {
