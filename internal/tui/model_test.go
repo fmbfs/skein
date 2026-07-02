@@ -507,3 +507,35 @@ func TestFollowSearchResultDispatchesByKind(t *testing.T) {
 		t.Error("expected a non-nil cmd for a matched method result")
 	}
 }
+
+// TestFollowSearchResultPushesSpool is the regression test for a bug found
+// in code review: followSearchResult replaced the active bundle's thread
+// without pushing it onto the spool first (unlike follow()), so `u` (back)
+// couldn't return to wherever the user was before opening search.
+func TestFollowSearchResultPushesSpool(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{name: "existing-thread", kind: "method"}
+	m.search.results = []lsp.SymbolInformation{{Name: "MyClass", Kind: lsp.SymbolKindClass}}
+
+	got, _ := m.followSearchResult()
+	gm := got.(Model)
+	back := gm.bundles[gm.activeBundle].back
+	if len(back) != 1 || back[0].name != "existing-thread" {
+		t.Errorf("back spool after followSearchResult = %+v, want [existing-thread]", back)
+	}
+}
+
+// TestFollowSearchResultFromTangleDoesNotPushEmptySpool confirms the
+// tangle's no-op entry state isn't spooled — there's nothing meaningful to
+// go "back" to before the very first thread.
+func TestFollowSearchResultFromTangleDoesNotPushEmptySpool(t *testing.T) {
+	m := newTestModel() // bundles[0].thread defaults to tangleState()
+	m.search.results = []lsp.SymbolInformation{{Name: "MyClass", Kind: lsp.SymbolKindClass}}
+
+	got, _ := m.followSearchResult()
+	gm := got.(Model)
+	back := gm.bundles[gm.activeBundle].back
+	if len(back) != 0 {
+		t.Errorf("back spool after following from tangle = %+v, want empty", back)
+	}
+}

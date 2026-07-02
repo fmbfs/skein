@@ -436,6 +436,17 @@ func (m Model) followSearchResult() (tea.Model, tea.Cmd) {
 	}
 	m.search.reset()
 	m.focus = focusMap
+
+	// Push the current thread onto the spool before replacing it, mirroring
+	// follow()'s behaviour — otherwise `u` (back) can't return to wherever
+	// the user was before opening search. Skip for the tangle's empty entry
+	// state: there's nothing meaningful to spool back to.
+	b := &m.bundles[m.activeBundle]
+	if b.thread.kind != "tangle" {
+		b.back = append(b.back, b.thread)
+		b.fwd = nil
+	}
+
 	name := sel.Name
 	if followKindForSymbol(sel.Kind) == followClass {
 		return m, loadClassCmd(m.client, m.rootDir, name)
