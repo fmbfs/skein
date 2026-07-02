@@ -18,7 +18,7 @@ type classFakeClient struct {
 	prepareTypeItems map[string][]lsp.TypeHierarchyItem // key: posKey(path, pos)
 	supertypes       map[string][]lsp.TypeHierarchyItem // key: item.Name
 	subtypes         map[string][]lsp.TypeHierarchyItem // key: item.Name
-	documentSymbols  map[string][]lsp.SymbolInformation  // key: path
+	documentSymbols  map[string][]lsp.SymbolInformation // key: path
 }
 
 func (c *classFakeClient) PrepareTypeHierarchy(path string, pos lsp.Position) ([]lsp.TypeHierarchyItem, error) {
@@ -104,5 +104,12 @@ func TestClassBuild_FixtureShape(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cm.Members, wantMembers) {
 		t.Errorf("Members = %+v, want %+v", cm.Members, wantMembers)
+	}
+}
+
+func TestNewClassCompositor(t *testing.T) {
+	cc := NewClassCompositor(nil, "/root")
+	if cc.RootDir != "/root" {
+		t.Errorf("RootDir = %q, want %q", cc.RootDir, "/root")
 	}
 }

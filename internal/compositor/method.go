@@ -23,8 +23,13 @@ func NewMethodCompositor(client *lsp.Client, rootDir string) *MethodCompositor {
 	return &MethodCompositor{base{Client: client, RootDir: rootDir}}
 }
 
-// Build resolves name to a method/function symbol and composes its RelationMap.
-func (m *MethodCompositor) Build(name string, ply int) (*RelationMap, error) {
+// Build resolves name to a method/function symbol and composes its
+// RelationMap. classFilter, if non-empty, scopes the search to candidates
+// whose containing class/namespace matches (exact match against
+// workspace/symbol's containerName, or against its last "::"-separated
+// component — so "-c DB" matches a candidate contained in "leveldb::DB").
+// Pass "" for unscoped lookup (the previous behaviour).
+func (m *MethodCompositor) Build(name, classFilter string, ply int) (*RelationMap, error) {
 	_ = m.nudgeIndexer() // best-effort; findWorkspaceSymbol still retries either way
 
 	symbols, err := m.findWorkspaceSymbol(name)
@@ -42,12 +47,30 @@ func (m *MethodCompositor) Build(name string, ply int) (*RelationMap, error) {
 		return nil, fmt.Errorf("no method or function named %q found in workspace", name)
 	}
 
+	if classFilter != "" {
+		var scoped []lsp.SymbolInformation
+		for _, c := range candidates {
+			if containerMatches(c.ContainerName, classFilter) {
+				scoped = append(scoped, c)
+			}
+		}
+		if len(scoped) == 0 {
+			return nil, fmt.Errorf("no method %q found in class %q (found in: %s)",
+				name, classFilter, strings.Join(distinctContainers(candidates), ", "))
+		}
+		candidates = scoped
+	}
+
 	// Multiple classes can declare the same method name (e.g. an interface
-	// and its implementation). Prefer a candidate whose definition resolves
-	// into a source file — that's the concrete implementation, not just a
-	// declaration. Falls back to the first candidate otherwise. Full
-	// disambiguation (by class) is future scope, see SPEC.md `-c` flag.
-	defPath, defPos, err := m.bestDefinition(candidates)
+	// and its implementation, or an unrelated class elsewhere in the
+	// workspace). Prefer a candidate whose definition resolves into a source
+	// file — that's the concrete implementation, not just a declaration.
+	// Falls back to the first candidate otherwise. When classFilter is empty
+	// and candidates span more than one container, the choice among them is
+	// workspace/symbol's response order — effectively arbitrary — so the
+	// other containers are surfaced as rm.Ambiguous for the caller to warn
+	// on and re-run with -c.
+	defPath, defPos, container, err := m.bestDefinition(candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +93,10 @@ func (m *MethodCompositor) Build(name string, ply int) (*RelationMap, error) {
 			Line: defPos.Line + 1,
 		},
 		Signature: sourceLine(defPath, defPos.Line),
+		Container: container,
+	}
+	if classFilter == "" {
+		rm.Ambiguous = otherContainers(distinctContainers(candidates), container)
 	}
 
 	if incoming, err := m.Client.IncomingCalls(item); err == nil {
@@ -113,10 +140,11 @@ func (m *MethodCompositor) outgoingCallNames(item lsp.CallHierarchyItem, ownName
 // from a definition jumps to the matching declaration, not the other way
 // round. So it must not be called on a candidate that's already in a source
 // file, or it would bounce us back to the header.
-func (m *MethodCompositor) bestDefinition(candidates []lsp.SymbolInformation) (path string, pos lsp.Position, err error) {
+func (m *MethodCompositor) bestDefinition(candidates []lsp.SymbolInformation) (path string, pos lsp.Position, container string, err error) {
 	type resolved struct {
-		path string
-		pos  lsp.Position
+		path      string
+		pos       lsp.Position
+		container string
 	}
 	var fallback *resolved
 
@@ -130,7 +158,7 @@ func (m *MethodCompositor) bestDefinition(candidates []lsp.SymbolInformation) (p
 		}
 
 		if isSourceFile(declPath) {
-			return declPath, sym.Location.Range.Start, nil
+			return declPath, sym.Location.Range.Start, sym.ContainerName, nil
 		}
 
 		defPath, defPos := declPath, sym.Location.Range.Start
@@ -146,17 +174,60 @@ func (m *MethodCompositor) bestDefinition(candidates []lsp.SymbolInformation) (p
 		}
 
 		if fallback == nil {
-			fallback = &resolved{defPath, defPos}
+			fallback = &resolved{defPath, defPos, sym.ContainerName}
 		}
 		if isSourceFile(defPath) {
-			return defPath, defPos, nil
+			return defPath, defPos, sym.ContainerName, nil
 		}
 	}
 
 	if fallback != nil {
-		return fallback.path, fallback.pos, nil
+		return fallback.path, fallback.pos, fallback.container, nil
 	}
-	return "", lsp.Position{}, fmt.Errorf("could not resolve a definition for any candidate")
+	return "", lsp.Position{}, "", fmt.Errorf("could not resolve a definition for any candidate")
+}
+
+// containerMatches reports whether a workspace/symbol containerName (e.g.
+// "leveldb::DB" or "testing::internal::BuiltInDefaultValue<int>") matches a
+// user-supplied class filter, either exactly or against its last
+// "::"-separated component — so a bare "-c DB" matches the fully-qualified
+// "leveldb::DB" without requiring the caller to spell out the namespace.
+func containerMatches(container, filter string) bool {
+	if container == filter {
+		return true
+	}
+	if idx := strings.LastIndex(container, "::"); idx != -1 {
+		return container[idx+2:] == filter
+	}
+	return false
+}
+
+// distinctContainers returns the deduplicated, order-preserving list of
+// containerNames across candidates (skipping free functions, which have no
+// container).
+func distinctContainers(candidates []lsp.SymbolInformation) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range candidates {
+		if c.ContainerName == "" || seen[c.ContainerName] {
+			continue
+		}
+		seen[c.ContainerName] = true
+		out = append(out, c.ContainerName)
+	}
+	return out
+}
+
+// otherContainers returns all of containers except chosen, for surfacing as
+// RelationMap.Ambiguous.
+func otherContainers(containers []string, chosen string) []string {
+	var out []string
+	for _, c := range containers {
+		if c != chosen {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // callKeywords are control-flow/operator tokens that match the

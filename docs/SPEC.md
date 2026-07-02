@@ -41,14 +41,27 @@ Triggered by the `draw` subcommand. Fires 2–3 LSP calls, prints a static tree 
 stdout, exits. Designed for scripts, CI, piping.
 
 ```bash
-skein draw -m <method>    # thread = method, show definitions + call sites
-skein draw -c <class>     # thread = class, show hierarchy + members
-skein draw -f <file>      # thread = file, show all symbols defined within
-skein draw -s <symbol>    # thread = any symbol, generic relationship map
+skein draw -m <method>           # thread = method, show definitions + call sites
+skein draw -m <method> -c <class> # same, scoped to one class — disambiguates a
+                                   # name declared by more than one class/namespace
+skein draw -c <class>            # thread = class, show hierarchy + members
+skein draw -f <file>             # thread = file, show all symbols defined within
+skein draw -s <symbol>           # thread = any symbol, generic relationship map
 ```
 
 Output is a `tree(1)`-style Unicode tree. Supports `--json` for machine
 consumption. Colour auto-disabled when stdout is not a TTY.
+
+**Method name ambiguity.** A bare `-m <method>` is resolved via
+`workspace/symbol`, which can return candidates from multiple unrelated
+classes/namespaces sharing the same method name — common in real-world
+codebases (operator overloads, template instantiations, unrelated classes
+both implementing a `Get`/`Put`/`push_back`-shaped interface). When that
+happens, skein still picks one (preferring a candidate that resolves into a
+concrete source-file definition over a bare declaration) but prints a
+stderr warning naming the other containers found, and the picked one, so
+the result isn't silently wrong. Pass `-c <class>` to scope the search and
+make the choice deterministic instead of order-dependent.
 
 ### 3.2 TUI (slow mode)
 

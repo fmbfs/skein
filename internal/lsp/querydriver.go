@@ -47,15 +47,16 @@ func DetectCompilerDriver(compileCommandsPath string) (string, error) {
 	}
 
 	var compiler string
-	if len(entries[0].Arguments) > 0 {
+	switch {
+	case len(entries[0].Arguments) > 0:
 		compiler = entries[0].Arguments[0]
-	} else if entries[0].Command != "" {
+	case entries[0].Command != "":
 		fields := strings.Fields(entries[0].Command)
 		if len(fields) == 0 {
 			return "", fmt.Errorf("empty command in first compile_commands.json entry")
 		}
 		compiler = fields[0]
-	} else {
+	default:
 		return "", fmt.Errorf("first compile_commands.json entry has neither command nor arguments")
 	}
 
