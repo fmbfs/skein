@@ -63,15 +63,27 @@ func TestViewport(t *testing.T) {
 }
 
 func TestRenderMapEmpty(t *testing.T) {
-	got := renderMap(nil, 0, 10)
+	got := renderMap(nil, 0, 10, "method")
 	if !strings.Contains(got, "empty") {
 		t.Errorf("renderMap(nil) = %q, want it to mention empty", got)
 	}
 }
 
+// TestRenderMapTangleShowsOnboardingHint is the regression test for a
+// reported UX gap: a bare `skein` launch (no CLI symbol) landed on a
+// blank pane that just said "(empty)" with no indication of what to do
+// next. The fresh, nothing-loaded-yet "tangle" state must instead point
+// the user at the search bar.
+func TestRenderMapTangleShowsOnboardingHint(t *testing.T) {
+	got := renderMap(nil, 0, 10, "tangle")
+	if !strings.Contains(got, "search") {
+		t.Errorf("renderMap(tangle) = %q, want an onboarding hint mentioning search", got)
+	}
+}
+
 func TestRenderMapHighlightsCursor(t *testing.T) {
 	nodes := []Node{{Label: "one"}, {Label: "two"}}
-	got := renderMap(nodes, 1, 10)
+	got := renderMap(nodes, 1, 10, "method")
 	lines := strings.Split(got, "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines, got %d: %q", len(lines), got)
@@ -263,7 +275,7 @@ func TestRenderMapDeepTreeAllBranches(t *testing.T) {
 		}},
 		{Label: "root-b"},
 	}
-	got := renderMap(nodes, 0, 20)
+	got := renderMap(nodes, 0, 20, "method")
 	for _, want := range []string{"root-a", "child-a1", "child-a2", "grandchild", "root-b", "├──", "└──"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("renderMap output missing %q:\n%s", want, got)

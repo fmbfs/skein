@@ -80,7 +80,7 @@ func (m Model) renderPanels(t *threadState, reserved int) string {
 	}
 
 	visible := filterByDirection(t.nodes, m.showIn, m.showOut)
-	left := mapStyle.Width(panelWidth).Height(panelHeight).Render(renderMap(visible, t.cursor, panelHeight-2))
+	left := mapStyle.Width(panelWidth).Height(panelHeight).Render(renderMap(visible, t.cursor, panelHeight-2, t.kind))
 	right := detailStyle.Width(panelWidth).Height(panelHeight).Render(detailFor(t, visible))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)

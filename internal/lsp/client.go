@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -18,12 +19,22 @@ import (
 // goroutine pool. clangd's typical response time (<200ms) makes this
 // acceptable for v0.1, and callers running inside a bubbletea tea.Cmd already
 // get non-blocking behaviour from bubbletea's own event loop.
+//
+// "One call at a time" is enforced by ioMu: writeFrame/readFrame share a
+// single stdin/stdout pipe pair with no per-request framing beyond the
+// JSON-RPC id, so two goroutines calling Call/Notify concurrently (e.g. the
+// TUI firing a new searchCmd on every keystroke while a previous one is
+// still in flight) could otherwise interleave writes or have one goroutine's
+// readFrame steal the response meant for another's outstanding request,
+// hanging it indefinitely. ioMu serialises the full request/response cycle
+// so overlapping callers simply queue instead of racing.
 type Client struct {
 	cmd     *exec.Cmd
 	w       io.WriteCloser
 	r       *bufio.Reader
 	nextID  int64
 	rootURI string
+	ioMu    sync.Mutex
 }
 
 // New spawns clangdPath as a subprocess rooted at rootDir (the directory
@@ -85,6 +96,9 @@ func New(clangdPath, rootDir string, extraArgs ...string) (*Client, error) {
 // arrives, decoding its result into out (which may be nil to discard it).
 // Notifications received while waiting (e.g. publishDiagnostics) are skipped.
 func (c *Client) Call(method string, params interface{}, out interface{}) error {
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
+
 	id := atomic.AddInt64(&c.nextID, 1)
 	if err := c.writeFrame(jsonrpcRequest{
 		JSONRPC: "2.0",
@@ -118,6 +132,8 @@ func (c *Client) Call(method string, params interface{}, out interface{}) error 
 
 // Notify sends a JSON-RPC notification; no response is expected or read.
 func (c *Client) Notify(method string, params interface{}) error {
+	c.ioMu.Lock()
+	defer c.ioMu.Unlock()
 	return c.writeFrame(jsonrpcNotification{
 		JSONRPC: "2.0",
 		Method:  method,

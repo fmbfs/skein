@@ -12,6 +12,16 @@ func TestDetailForNilThread(t *testing.T) {
 	}
 }
 
+// TestDetailForTangleShowsOnboardingHint mirrors the map panel's
+// onboarding fix: a bare `skein` launch shouldn't leave the detail panel
+// showing a bare "tangle [tangle]" header with nothing else useful.
+func TestDetailForTangleShowsOnboardingHint(t *testing.T) {
+	got := detailFor(&threadState{name: "tangle", kind: "tangle"}, nil)
+	if !strings.Contains(got, "search") {
+		t.Errorf("detailFor(tangle) = %q, want an onboarding hint mentioning search", got)
+	}
+}
+
 func TestDetailForRendersThreadFields(t *testing.T) {
 	th := &threadState{
 		name:      "Foo",

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os/exec"
 	"strconv"
@@ -106,6 +107,76 @@ func TestClient_Call_SkipsUnrelatedMessages(t *testing.T) {
 	}
 	if len(result) != 1 || result[0].Name != "bar" {
 		t.Errorf("WorkspaceSymbol() = %+v, want one symbol named bar", result)
+	}
+}
+
+// TestClient_ConcurrentCalls_Serialised is the regression test for the race
+// between overlapping tea.Cmd invocations of the same *lsp.Client — e.g. the
+// TUI firing a new searchCmd on every keystroke while a previous
+// WorkspaceSymbol call is still in flight. Without ioMu serialising the
+// whole request/response cycle, one goroutine's readFrame can steal the
+// response meant for another's outstanding request, hanging it forever (and
+// racing on the shared reader/writer under -race, and under go test -race
+// this test would flag the data race directly). Here N goroutines issue
+// concurrent WorkspaceSymbol calls; the server echoes back each request's
+// own JSON-RPC id, and every caller must observe a distinct id with no
+// errors — proving no response was ever misdelivered to another goroutine.
+func TestClient_ConcurrentCalls_Serialised(t *testing.T) {
+	client, server := pipeClients()
+
+	const n = 8
+	go func() {
+		for i := 0; i < n; i++ {
+			msg, err := server.readFrame()
+			if err != nil {
+				return
+			}
+			var id int64
+			if msg.ID != nil {
+				id = *msg.ID
+			}
+			_ = server.writeFrame(jsonrpcResponse{
+				JSONRPC: "2.0",
+				ID:      id,
+				Result:  []SymbolInformation{{Name: strconv.FormatInt(id, 10)}},
+			})
+		}
+	}()
+
+	type callResult struct {
+		name string
+		err  error
+	}
+	results := make(chan callResult, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			result, err := client.WorkspaceSymbol("q")
+			if err != nil {
+				results <- callResult{err: err}
+				return
+			}
+			if len(result) != 1 {
+				results <- callResult{err: fmt.Errorf("WorkspaceSymbol() = %+v, want exactly one symbol", result)}
+				return
+			}
+			results <- callResult{name: result[0].Name}
+		}()
+	}
+
+	seen := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		r := <-results
+		if r.err != nil {
+			t.Error(r.err)
+			continue
+		}
+		if seen[r.name] {
+			t.Errorf("id %q was returned to more than one caller — a response was misdelivered", r.name)
+		}
+		seen[r.name] = true
+	}
+	if len(seen) != n {
+		t.Errorf("got %d distinct ids, want %d", len(seen), n)
 	}
 }
 

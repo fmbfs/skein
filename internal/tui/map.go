@@ -73,9 +73,18 @@ func flatten(nodes []Node) []flatNode {
 
 // renderMap renders the flattened node list as a tree(1)-style Unicode
 // tree, highlighting the node at cursor and colour-coding by direction.
-func renderMap(nodes []Node, cursor, height int) string {
+// kind is the owning thread's kind (docs/SPEC.md vocabulary); when it's
+// "tangle" (the fresh, nothing-loaded-yet entry state) and there are no
+// nodes, renderMap shows an onboarding hint instead of a bare "(empty)" —
+// a first-time bare `skein` launch otherwise stares back at a blank pane
+// with zero indication of what to do next (a real UX gap surfaced by
+// direct user testing).
+func renderMap(nodes []Node, cursor, height int, kind string) string {
 	flat := flatten(nodes)
 	if len(flat) == 0 {
+		if kind == "tangle" {
+			return mutedStyle.Render("press / to search for a symbol\n(class, method, or function)")
+		}
 		return mutedStyle.Render("(empty)")
 	}
 

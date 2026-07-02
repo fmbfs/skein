@@ -32,6 +32,12 @@ type searchState struct {
 
 	history    []string // most recent first, capped at maxSearchHistory
 	historyIdx int      // -1 when not currently browsing history
+
+	// generation increments on every keystroke and tags in-flight
+	// searchDebounceMsg/searchResultsMsg values so a stale, superseded
+	// query (one for a query the user has since kept typing past) is
+	// dropped instead of clobbering newer state. See searchDebounceMsg.
+	generation int
 }
 
 // newSearchState builds a fresh, unfocused search bar.
@@ -52,6 +58,7 @@ func (s *searchState) reset() {
 	s.cursor = 0
 	s.err = nil
 	s.historyIdx = -1
+	s.generation++ // invalidate any in-flight debounce/query from before the reset
 }
 
 // pushHistory records query as the most recent search, moving it to the
