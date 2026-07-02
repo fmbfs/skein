@@ -38,6 +38,12 @@ linters:
           - misspell
         path: internal/lsp/
         source: initiali[sz]ed?
+      # lipgloss.Color is the library's exported API name (US spelling) —
+      # not a prose spelling error, so exempt it from the UK-locale check.
+      - linters:
+          - misspell
+        path: internal/tui/
+        source: lipgloss\.Color
       # internal/lsp.Client spawns clangd as a long-lived subprocess with a
       # deliberate synchronous, no-context design (see doc comment on
       # Client / docs/REVIEW.md §14 Q1) — CommandContext doesn't apply here.
