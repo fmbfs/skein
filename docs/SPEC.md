@@ -145,9 +145,12 @@ is always the default.
 | `-`        | Decrease ply (min 1) |
 
 When the strand limit (default 50, override with `--strands N`) is reached,
-truncated branches show `… N more` with a warning in the status bar. The cap
-is intentional — real codebases have methods called in hundreds of places;
-showing all of them destroys the map.
+truncated sections print a warning — e.g. `called-in truncated: showing 50 of
+80 call sites (30 hidden)` — to stderr in draw mode, or in the TUI's status
+bar. The cap is intentional — real codebases have methods called in hundreds
+of places; showing all of them destroys the map. Each section (called-in,
+calls, members, symbols) gets its own independent budget, so one high-traffic
+list doesn't crowd out another section's visibility.
 
 ---
 

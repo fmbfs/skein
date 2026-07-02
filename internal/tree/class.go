@@ -7,8 +7,11 @@ import (
 	"github.com/fmbfs/skein/internal/compositor"
 )
 
-// PrintClass renders a ClassMap as a tree(1)-style Unicode tree.
-func PrintClass(w io.Writer, cm *compositor.ClassMap) {
+// PrintClass renders a ClassMap as a tree(1)-style Unicode tree. By default
+// the output is monochrome; pass WithColour(true) to colourize "inherited by"
+// (incoming, cyan) and "inherits" (outgoing, green) entries.
+func PrintClass(w io.Writer, cm *compositor.ClassMap, opts ...Option) {
+	ro := resolveOpts(opts)
 	fmt.Fprintf(w, "%s  [%s]\n", cm.ThreadName, cm.Kind)
 
 	type section func(isLast bool)
@@ -18,10 +21,10 @@ func PrintClass(w io.Writer, cm *compositor.ClassMap) {
 		sections = append(sections, func(isLast bool) { printClassDefinedIn(w, cm, isLast) })
 	}
 	if len(cm.Inherits) > 0 {
-		sections = append(sections, func(isLast bool) { printNameList(w, "inherits", cm.Inherits, isLast) })
+		sections = append(sections, func(isLast bool) { printNameList(w, "inherits", cm.Inherits, ro.outgoing, isLast) })
 	}
 	if len(cm.InheritedBy) > 0 {
-		sections = append(sections, func(isLast bool) { printNameList(w, "inherited by", cm.InheritedBy, isLast) })
+		sections = append(sections, func(isLast bool) { printNameList(w, "inherited by", cm.InheritedBy, ro.incoming, isLast) })
 	}
 	if len(cm.Members) > 0 {
 		sections = append(sections, func(isLast bool) { printMembersSection(w, "members", cm.Members, isLast) })
@@ -38,12 +41,12 @@ func printClassDefinedIn(w io.Writer, cm *compositor.ClassMap, isLast bool) {
 	fmt.Fprintf(w, "%s└── %s :%d\n", cont, cm.DefinedAt.Path, cm.DefinedAt.Line)
 }
 
-func printNameList(w io.Writer, label string, names []string, isLast bool) {
+func printNameList(w io.Writer, label string, names []string, colorFn func(string) string, isLast bool) {
 	connector, cont := branch(isLast)
-	fmt.Fprintf(w, "%s%s\n", connector, label)
+	fmt.Fprintf(w, "%s%s\n", connector, colorFn(label))
 	for i, name := range names {
 		c, _ := branch(i == len(names)-1)
-		fmt.Fprintf(w, "%s%s%s\n", cont, c, name)
+		fmt.Fprintf(w, "%s%s\n", cont, colorFn(fmt.Sprintf("%s%s", c, name)))
 	}
 }
 

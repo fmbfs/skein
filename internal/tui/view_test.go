@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestRenderStatusBarShowsWarning(t *testing.T) {
+	m := newTestModel()
+	th := threadState{name: "foo", kind: "method", warning: "showing first 50 of 80 items"}
+	got := strings.Join(strings.Fields(m.renderStatusBar(&th)), " ")
+	if !strings.Contains(got, "showing first 50 of 80 items") {
+		t.Errorf("renderStatusBar() = %q, want it to contain the truncation warning", got)
+	}
+}
+
+func TestRenderStatusBarNoWarningOmitsIt(t *testing.T) {
+	m := newTestModel()
+	th := threadState{name: "foo", kind: "method"}
+	got := m.renderStatusBar(&th)
+	if strings.Contains(got, "showing first") {
+		t.Errorf("renderStatusBar() = %q, should not mention truncation when warning is empty", got)
+	}
+}
+
 func TestFilterByDirectionHidesIncoming(t *testing.T) {
 	nodes := []Node{
 		{Label: "in", Direction: directionIncoming},

@@ -51,6 +51,18 @@ linters:
           - noctx
         path: internal/lsp/client\.go
         text: exec\.Command
+      # --no-color / NO_COLOR are the actual external CLI flag and
+      # https://no-color.org environment variable names (US spelling by
+      # convention) — not prose spelling errors, so exempt them like the
+      # lipgloss.Color exemption above.
+      - linters:
+          - misspell
+        path: internal/tree/
+        source: (no-color|NO_COLOR)
+      - linters:
+          - misspell
+        path: cmd/skein/
+        source: no-color
     paths:
       - third_party$
       - builtin$
