@@ -40,9 +40,12 @@ func New(clangdPath, rootDir string, extraArgs ...string) (*Client, error) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		stdin.Close()
 		return nil, fmt.Errorf("lsp: stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		stdout.Close()
 		return nil, fmt.Errorf("lsp: start %s: %w", clangdPath, err)
 	}
 

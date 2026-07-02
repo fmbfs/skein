@@ -193,7 +193,7 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 				Label:     callee,
 				Direction: directionOutgoing,
 				Follow:    followMethod,
-				Target:    callee,
+				Target:    calleeTarget(callee),
 			})
 		}
 		nodes = append(nodes, calls)
@@ -208,6 +208,22 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 	}
 
 	return nodes
+}
+
+// calleeTarget derives a workspace/symbol-resolvable name from one of
+// RelationMap.Calls's decorated display strings (e.g. "acquire()" or
+// "Pipeline::processFrame()" — see compositor's formatOutgoing/
+// scanCallExpressions). clangd's workspace/symbol never returns names with
+// a "()" suffix or "Class::" qualifier, so following such a Node without
+// stripping them always fails to resolve (regression: see
+// TestBuildMethodTree_CalleeTargetStripsParensAndQualifier). The Label
+// keeps the decorated form for display; only Target needs to be bare.
+func calleeTarget(callee string) string {
+	name := strings.TrimSuffix(callee, "()")
+	if i := strings.LastIndex(name, "::"); i != -1 {
+		name = name[i+2:]
+	}
+	return name
 }
 
 // buildClassTree adapts a composed ClassMap into the unified Node tree.

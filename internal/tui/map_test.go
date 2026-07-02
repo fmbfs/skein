@@ -128,6 +128,31 @@ func TestBuildMethodTree(t *testing.T) {
 	}
 }
 
+// TestBuildMethodTree_CalleeTargetStripsParensAndQualifier is the
+// regression test for a real bug found in code review: rm.Calls entries
+// always carry a "()" suffix (and sometimes a "Class::" qualifier prefix —
+// see compositor.formatOutgoing/scanCallExpressions), but Node.Target is
+// what gets passed straight to MethodCompositor.Build's exact-match lookup
+// (findWorkspaceSymbol's `s.Name == name` filter). clangd's workspace/symbol
+// never returns names with a "()" suffix or "::" qualifier, so following an
+// outgoing-call node always failed with "no method or function named ...".
+// The display Label must keep the decorated form; only Target needs to be
+// bare and resolvable.
+func TestBuildMethodTree_CalleeTargetStripsParensAndQualifier(t *testing.T) {
+	rm := &compositor.RelationMap{
+		ThreadName: "Foo",
+		Calls:      []string{"acquire()", "Pipeline::processFrame()"},
+	}
+	nodes := buildMethodTree(rm)
+	calls := nodes[0]
+	if calls.Children[0].Label != "acquire()" || calls.Children[0].Target != "acquire" {
+		t.Errorf("calls.Children[0] = %+v, want Label 'acquire()' Target 'acquire'", calls.Children[0])
+	}
+	if calls.Children[1].Label != "Pipeline::processFrame()" || calls.Children[1].Target != "processFrame" {
+		t.Errorf("calls.Children[1] = %+v, want Label 'Pipeline::processFrame()' Target 'processFrame'", calls.Children[1])
+	}
+}
+
 func TestBuildMethodTreeMinimal(t *testing.T) {
 	rm := &compositor.RelationMap{ThreadName: "Foo"}
 	nodes := buildMethodTree(rm)
