@@ -1,52 +1,61 @@
-# .golangci.yml
-# golangci-lint v1.59 configuration
-# Docs: https://golangci-lint.run/usage/configuration/
-
+version: "2"
 run:
-  timeout: 5m
-  tests: true          # lint test files too
-
+  tests: true
 linters:
   enable:
-    - errcheck         # unchecked errors
-    - gosimple         # simplification suggestions
-    - govet            # go vet checks
-    - ineffassign      # ineffectual assignments
-    - staticcheck      # advanced static analysis
-    - unused           # unused code
-    - gofmt            # formatting (fail if not gofmt'd)
-    - goimports        # import ordering
-    - misspell         # spelling in comments/strings
-    - gocritic         # opinionated but useful checks
-    - noctx            # HTTP requests without context
-    - bodyclose        # HTTP response body not closed
-    - exhaustive       # missing switch cases on enums
-    - godot            # comments should end with a period
-    - whitespace       # unnecessary blank lines
-
-linters-settings:
-  exhaustive:
-    default-signifies-exhaustive: true  # allow default: in switches
-
-  gocritic:
-    disabled-checks:
-      - commentedOutCode   # we comment out TODOs intentionally
-
-  misspell:
-    # The project consistently writes British English (behaviour, colour,
-    # modelling — see SPEC.md, REVIEW.md, CONTRIBUTING.md). US was fighting
-    # the established voice, not catching real typos.
-    locale: UK
-
-issues:
-  exclude-rules:
-    # Test files get relaxed rules
-    - path: _test\.go
-      linters:
-        - errcheck
-        - godot
-
-    # Generated mock files
-    - path: mock_.*\.go
-      linters:
-        - all
+    - bodyclose
+    - exhaustive
+    - gocritic
+    - godot
+    - misspell
+    - noctx
+    - whitespace
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocritic:
+      disabled-checks:
+        - commentedOutCode
+    misspell:
+      locale: UK
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - godot
+          - noctx
+        path: _test\.go
+      - linters:
+          - all
+        path: mock_.*\.go
+      - linters:
+          - misspell
+        path: internal/lsp/
+        source: initiali[sz]ed?
+      # internal/lsp.Client spawns clangd as a long-lived subprocess with a
+      # deliberate synchronous, no-context design (see doc comment on
+      # Client / docs/REVIEW.md §14 Q1) — CommandContext doesn't apply here.
+      - linters:
+          - noctx
+        path: internal/lsp/client\.go
+        text: exec\.Command
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

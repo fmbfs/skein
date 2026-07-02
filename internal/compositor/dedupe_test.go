@@ -11,7 +11,7 @@ import (
 // for the real bug found against a real-world PIMPL class: typeHierarchy/
 // subtypes returned "EnableMakeUnique" twice under two different
 // symbolIDs, but with identical name, URI, and range — a CRTP indexing
-// artifact, not two real distinct base classes.
+// artefact, not two real distinct base classes.
 func TestDedupeTypeNames_SameLocationDifferentSymbolID(t *testing.T) {
 	sameRange := lsp.Range{Start: lsp.Position{Line: 135, Character: 15}, End: lsp.Position{Line: 135, Character: 31}}
 	items := []lsp.TypeHierarchyItem{
