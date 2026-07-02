@@ -65,3 +65,10 @@ func TestFileBuild_NestsMembersByRangeContainment(t *testing.T) {
 		t.Errorf("ThreadName = %q, want include/pipeline.hpp (relative to RootDir)", fm.ThreadName)
 	}
 }
+
+func TestNewFileCompositor(t *testing.T) {
+	fc := NewFileCompositor(nil, "/root")
+	if fc.RootDir != "/root" {
+		t.Errorf("RootDir = %q, want %q", fc.RootDir, "/root")
+	}
+}

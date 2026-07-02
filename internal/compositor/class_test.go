@@ -106,3 +106,10 @@ func TestClassBuild_FixtureShape(t *testing.T) {
 		t.Errorf("Members = %+v, want %+v", cm.Members, wantMembers)
 	}
 }
+
+func TestNewClassCompositor(t *testing.T) {
+	cc := NewClassCompositor(nil, "/root")
+	if cc.RootDir != "/root" {
+		t.Errorf("RootDir = %q, want %q", cc.RootDir, "/root")
+	}
+}

@@ -351,3 +351,24 @@ func TestScanCallExpressions_ExcludesOwnNameAndKeywords(t *testing.T) {
 		t.Errorf("scanCallExpressions = %v, want %v (should exclude the keyword 'if' and the own bare name 'evaluate')", calls, want)
 	}
 }
+
+func TestNewMethodCompositor(t *testing.T) {
+	mc := NewMethodCompositor(nil, "/root")
+	if mc.RootDir != "/root" {
+		t.Errorf("RootDir = %q, want %q", mc.RootDir, "/root")
+	}
+}
+
+func TestFormatOutgoing(t *testing.T) {
+	calls := []lsp.CallHierarchyOutgoingCall{
+		{To: lsp.CallHierarchyItem{Name: "helper"}},
+		{To: lsp.CallHierarchyItem{Name: "helper"}}, // duplicate -> deduped
+		{To: lsp.CallHierarchyItem{Name: "method", Detail: "MyClass"}},
+		{To: lsp.CallHierarchyItem{Name: "already::Qualified", Detail: "Other"}},
+	}
+	got := formatOutgoing(calls)
+	want := []string{"helper()", "MyClass::method()", "already::Qualified()"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("formatOutgoing() = %v, want %v", got, want)
+	}
+}
