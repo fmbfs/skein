@@ -563,6 +563,94 @@ func TestHandleSearchKeyTypingUpdatesInputAndSearches(t *testing.T) {
 	}
 }
 
+// TestHandleSearchKeyTyping_BumpsGeneration is the regression test for the
+// "search vs load time is too long" fix: every keystroke must bump
+// search.generation, and produce a debounce cmd rather than firing
+// searchCmd directly, so a fast typing burst collapses to one eventual
+// workspace/symbol query instead of one per keystroke.
+func TestHandleSearchKeyTyping_BumpsGeneration(t *testing.T) {
+	m := newTestModel()
+	m.focus = focusSearch
+	m.search.input.Focus()
+	startGen := m.search.generation
+
+	got, cmd := m.handleSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("f")})
+	gm := got.(Model)
+	if gm.search.generation != startGen+1 {
+		t.Errorf("generation = %d, want %d after one keystroke", gm.search.generation, startGen+1)
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil debounce cmd")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("cmd produced %T, want tea.BatchMsg wrapping the debounce cmd", msg)
+	}
+	var dbg searchDebounceMsg
+	found := false
+	for _, sub := range batch {
+		if sub == nil {
+			continue
+		}
+		if d, ok := sub().(searchDebounceMsg); ok {
+			dbg = d
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a searchDebounceMsg among the batched cmds (debounced, not an immediate searchResultsMsg)")
+	}
+	if dbg.gen != gm.search.generation || dbg.query != "f" {
+		t.Errorf("searchDebounceMsg = %+v, want gen=%d query=%q", dbg, gm.search.generation, "f")
+	}
+}
+
+// TestUpdateSearchDebounceMsg_StaleGenerationDropped confirms a
+// searchDebounceMsg tagged with an older generation (i.e. the user kept
+// typing after it was scheduled) is dropped instead of firing a query.
+func TestUpdateSearchDebounceMsg_StaleGenerationDropped(t *testing.T) {
+	m := newTestModel()
+	m.search.generation = 5
+
+	got, cmd := m.Update(searchDebounceMsg{gen: 3, query: "stale"})
+	gm := got.(Model)
+	if cmd != nil {
+		t.Error("expected a nil cmd for a stale (superseded) debounce trigger")
+	}
+	if gm.search.generation != 5 {
+		t.Errorf("generation = %d, want unchanged 5", gm.search.generation)
+	}
+}
+
+// TestUpdateSearchDebounceMsg_CurrentGenerationFiresQuery confirms a
+// still-current searchDebounceMsg issues the actual searchCmd.
+func TestUpdateSearchDebounceMsg_CurrentGenerationFiresQuery(t *testing.T) {
+	m := newTestModel()
+	m.search.generation = 2
+
+	_, cmd := m.Update(searchDebounceMsg{gen: 2, query: "foo"})
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd for a current-generation debounce trigger")
+	}
+}
+
+// TestUpdateSearchResultsMsg_StaleGenerationDropped confirms a
+// searchResultsMsg from a superseded query doesn't clobber newer search
+// state (e.g. results for query "f" arriving after the user has already
+// typed "foo").
+func TestUpdateSearchResultsMsg_StaleGenerationDropped(t *testing.T) {
+	m := newTestModel()
+	m.search.generation = 2
+	m.search.results = []lsp.SymbolInformation{{Name: "current"}}
+
+	got, _ := m.Update(searchResultsMsg{gen: 1, results: []lsp.SymbolInformation{{Name: "stale"}}})
+	gm := got.(Model)
+	if len(gm.search.results) != 1 || gm.search.results[0].Name != "current" {
+		t.Errorf("results = %+v, want unchanged (stale result dropped)", gm.search.results)
+	}
+}
+
 func TestHandleSearchKeyClearingQueryDropsResults(t *testing.T) {
 	m := newTestModel()
 	m.focus = focusSearch

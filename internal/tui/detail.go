@@ -20,6 +20,9 @@ func detailFor(t *threadState, visible []Node) string {
 	if t == nil {
 		return mutedStyle.Render("no thread selected — press / to search")
 	}
+	if t.kind == "tangle" {
+		return mutedStyle.Render("nothing loaded yet\n\npress / to search the workspace\nfor a class, method, or function")
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s  [%s]\n\n", t.name, t.kind)

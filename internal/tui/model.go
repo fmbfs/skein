@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -144,11 +145,34 @@ type threadLoadedMsg struct {
 }
 
 // searchResultsMsg carries a workspace/symbol query's results back to the
-// search bar.
+// search bar. gen ties the result back to the keystroke that triggered it
+// (via searchDebounceMsg) so a slow, superseded query can't clobber the
+// input state with stale results after the user has kept typing.
 type searchResultsMsg struct {
 	results []lsp.SymbolInformation
 	err     error
+	gen     int
 }
+
+// searchDebounceMsg fires searchDebounceDelay after a search-box keystroke.
+// If gen no longer matches the search state's current generation (i.e. the
+// user typed again before the delay elapsed), it's a stale trigger and is
+// dropped instead of issuing a query — this is what actually collapses a
+// fast typist's keystrokes down to a single workspace/symbol round trip
+// instead of firing (and fully serialising, per *lsp.Client's one-call-at-
+// a-time contract) one query per keystroke, which is what made rapid
+// typing feel like it was "overwhelmed" and lagging behind ("search vs
+// load time is too long").
+type searchDebounceMsg struct {
+	gen   int
+	query string
+}
+
+// searchDebounceDelay is how long search waits after the last keystroke
+// before actually querying clangd. Short enough to still feel instant for
+// a pause mid-word, long enough to collapse a normal typing burst into one
+// round trip instead of one per character.
+const searchDebounceDelay = 120 * time.Millisecond
 
 // --- commands -------------------------------------------------------------
 
@@ -233,11 +257,21 @@ func loadFileCmd(client *lsp.Client, rootDir, relOrAbsPath string) tea.Cmd {
 	}
 }
 
-func searchCmd(client *lsp.Client, query string) tea.Cmd {
+func searchCmd(client *lsp.Client, query string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		results, err := client.WorkspaceSymbol(query)
-		return searchResultsMsg{results: results, err: err}
+		return searchResultsMsg{results: results, err: err, gen: gen}
 	}
+}
+
+// searchDebounceCmd schedules a searchDebounceMsg after searchDebounceDelay,
+// tagged with gen (the search generation at keystroke time) so a later
+// keystroke's own debounce can supersede it. See searchDebounceMsg's doc
+// comment.
+func searchDebounceCmd(gen int, query string) tea.Cmd {
+	return tea.Tick(searchDebounceDelay, func(time.Time) tea.Msg {
+		return searchDebounceMsg{gen: gen, query: query}
+	})
 }
 
 func threadStateFromRelationMap(rm *compositor.RelationMap, classFilter string, ply int, warning string) threadState {
@@ -307,10 +341,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.applyThreadLoaded(msg)
 
 	case searchResultsMsg:
+		if msg.gen != m.search.generation {
+			// Superseded by a later keystroke — drop it so a slow query
+			// can't overwrite what the user has typed since.
+			return m, nil
+		}
 		m.search.err = msg.err
 		m.search.results = msg.results
 		m.search.cursor = 0
 		return m, nil
+
+	case searchDebounceMsg:
+		if msg.gen != m.search.generation {
+			return m, nil // a newer keystroke already superseded this trigger
+		}
+		return m, searchCmd(m.client, msg.query, msg.gen)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -452,11 +497,12 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.search.input, cmd = m.search.input.Update(msg)
 	query := strings.TrimSpace(m.search.input.Value())
+	m.search.generation++
 	if query == "" {
 		m.search.results = nil
 		return m, cmd
 	}
-	return m, tea.Batch(cmd, searchCmd(m.client, query))
+	return m, tea.Batch(cmd, searchDebounceCmd(m.search.generation, query))
 }
 
 func (m Model) followSearchResult() (tea.Model, tea.Cmd) {

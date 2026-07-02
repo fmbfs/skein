@@ -301,6 +301,32 @@ skein/
 
 ---
 
+## 11a. Performance notes
+
+- **Index warm-up.** clangd's background indexer is incremental: right after
+  the LSP handshake, `workspace/symbol` queries can return a partial result
+  (e.g. only a header declaration) with the concrete `.cpp` definition
+  landing moments later. To avoid handing back a stale/incomplete snapshot,
+  the first resolution of any symbol waits for the result count to stay
+  stable for ~800ms before returning. Once a client's index has stabilised
+  once, it's marked *warm* and every later `workspace/symbol` lookup (i.e.
+  every follow/navigation for the rest of the session) short-circuits to a
+  single round trip instead of repeating that wait — the fast path falls
+  back to the full stabilisation loop only if a symbol genuinely isn't
+  found yet (e.g. a file edited moments ago). See
+  `internal/compositor/shared.go`'s `findWorkspaceSymbol`.
+- **Search debounce.** The bottom search bar waits ~120ms after the last
+  keystroke before querying clangd, so a normal typing burst collapses into
+  one `workspace/symbol` round trip instead of one per character. A
+  superseded query (the user kept typing before it fired, or before its
+  result came back) is dropped rather than overwriting newer search state.
+  See `internal/tui/model.go`'s `searchDebounceMsg`/`searchState.generation`.
+- **Serial LSP transport.** `*lsp.Client` is a single blocking stdio
+  connection to clangd (one call in flight at a time — see
+  `internal/lsp/client.go`); overlapping callers queue rather than racing.
+
+---
+
 ## 12. Requirements
 
 | Dependency | Purpose | Minimum version |

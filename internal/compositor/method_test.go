@@ -16,8 +16,9 @@ import (
 // different result on each successive call — this is what reproduces the
 // "partial index snapshot" bug (see TestFindWorkspaceSymbol_WaitsForStableCount).
 type fakeClient struct {
-	workspaceSymbolSeq [][]lsp.SymbolInformation
-	workspaceSymbolHit int
+	workspaceSymbolSeq   [][]lsp.SymbolInformation
+	workspaceSymbolHit   int
+	workspaceSymbolCalls int // total WorkspaceSymbol invocations, unbounded by len(workspaceSymbolSeq)
 
 	definitions   map[string][]lsp.Location // key: "path:line:char"
 	prepareItems  map[string][]lsp.CallHierarchyItem
@@ -28,6 +29,7 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) WorkspaceSymbol(query string) ([]lsp.SymbolInformation, error) {
+	f.workspaceSymbolCalls++
 	if f.workspaceSymbolHit >= len(f.workspaceSymbolSeq) {
 		return f.workspaceSymbolSeq[len(f.workspaceSymbolSeq)-1], nil
 	}
@@ -173,6 +175,80 @@ func TestFindWorkspaceSymbol_WaitsForStableCount(t *testing.T) {
 	}
 	if len(symbols) != 2 {
 		t.Fatalf("findWorkspaceSymbol returned %d symbols, want 2 (should have waited past the partial 1-result snapshot)", len(symbols))
+	}
+}
+
+// TestFindWorkspaceSymbol_WarmClientSkipsStabilisation is the regression
+// test for the "search vs load time is too long" complaint: once a
+// client's index has stabilised once, every subsequent
+// findWorkspaceSymbol call for that same client must return on the very
+// first WorkspaceSymbol call, without re-running the 300ms/800ms
+// stabilisation loop.
+func TestFindWorkspaceSymbol_WarmClientSkipsStabilisation(t *testing.T) {
+	full := []lsp.SymbolInformation{
+		{Name: "foo", Kind: lsp.SymbolKindMethod, Location: lsp.Location{URI: "file:///a.cpp"}},
+	}
+	client := &fakeClient{
+		workspaceSymbolSeq: [][]lsp.SymbolInformation{{}, full, full, full},
+	}
+	mc := &MethodCompositor{base{Client: client, RootDir: t.TempDir()}}
+
+	// First call: cold, must go through the full stabilisation loop.
+	if _, err := mc.findWorkspaceSymbol("foo"); err != nil {
+		t.Fatalf("first findWorkspaceSymbol error: %v", err)
+	}
+	if !isIndexWarm(client) {
+		t.Fatalf("client should be marked warm after a stabilised resolution")
+	}
+
+	// Second call, same client: must resolve on a single WorkspaceSymbol
+	// call rather than repolling for stability.
+	other := []lsp.SymbolInformation{
+		{Name: "bar", Kind: lsp.SymbolKindMethod, Location: lsp.Location{URI: "file:///b.cpp"}},
+	}
+	client2 := &fakeClient{workspaceSymbolSeq: [][]lsp.SymbolInformation{other}}
+	// Reuse client2 as a distinct fake but manually mark it warm to
+	// simulate "already warm from a prior Build() on this same session".
+	markIndexWarm(client2)
+
+	callsBefore := client2.workspaceSymbolCalls
+	symbols, err := (&MethodCompositor{base{Client: client2, RootDir: t.TempDir()}}).findWorkspaceSymbol("bar")
+	if err != nil {
+		t.Fatalf("findWorkspaceSymbol error: %v", err)
+	}
+	if got := client2.workspaceSymbolCalls - callsBefore; got != 1 {
+		t.Fatalf("WorkspaceSymbol called %d times on a warm client, want exactly 1 (fast path)", got)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "bar" {
+		t.Fatalf("findWorkspaceSymbol returned %+v, want the single 'bar' symbol", symbols)
+	}
+}
+
+// TestFindWorkspaceSymbol_WarmClientFallsBackWhenNotFound confirms that a
+// warm client still falls through to the full stabilisation retry loop
+// when the fast, single-shot WorkspaceSymbol call doesn't turn up a match
+// yet — e.g. a symbol that was only just added and isn't indexed yet, even
+// though the rest of the project's index is already warm.
+func TestFindWorkspaceSymbol_WarmClientFallsBackWhenNotFound(t *testing.T) {
+	full := []lsp.SymbolInformation{
+		{Name: "freshlyAdded", Kind: lsp.SymbolKindMethod, Location: lsp.Location{URI: "file:///new.cpp"}},
+	}
+	client := &fakeClient{
+		// First call (fast path attempt): empty, not indexed yet.
+		// Then the retry loop sees it appear and stabilise.
+		workspaceSymbolSeq: [][]lsp.SymbolInformation{{}, full, full, full},
+	}
+	markIndexWarm(client)
+
+	symbols, err := (&MethodCompositor{base{Client: client, RootDir: t.TempDir()}}).findWorkspaceSymbol("freshlyAdded")
+	if err != nil {
+		t.Fatalf("findWorkspaceSymbol error: %v", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "freshlyAdded" {
+		t.Fatalf("findWorkspaceSymbol returned %+v, want the single 'freshlyAdded' symbol", symbols)
+	}
+	if client.workspaceSymbolCalls < 2 {
+		t.Fatalf("expected fallback to the retry loop (>=2 calls), got %d", client.workspaceSymbolCalls)
 	}
 }
 
