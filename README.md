@@ -95,6 +95,7 @@ so that users already familiar with it feel at home immediately.
 | `/` | Search workspace symbols |
 | `p` | Pin thread to bundle (new tab) |
 | `[` / `]` | Previous / next bundle tab |
+| `1`-`9` | Jump to bundle tab by number |
 | `i` | Toggle incoming edges |
 | `o` | Toggle outgoing edges |
 | `+` / `-` | Increase / decrease ply (max 3) |
@@ -103,17 +104,35 @@ so that users already familiar with it feel at home immediately.
 
 ---
 
+## Draw mode flags
+
+| Flag | Action |
+|------|--------|
+| `-m <method>` | Thread = method/function |
+| `-c <class>` | Thread = class (with `-m`, scopes the method lookup to this class) |
+| `-f <file>` | Thread = file |
+| `-s <symbol>` | Thread = any symbol, resolved generically (method or class) |
+| `--ply N` | Traversal depth (default 1, max 3) |
+| `--strands N` | Max visible nodes before truncation (default 50) |
+| `--json` | JSON output |
+| `--no-color` | Disable ANSI colour |
+| `--absolute` | Absolute file paths instead of root-relative |
+| `--db <path>` | Path to `compile_commands.json` |
+| `--clangd <path>` | clangd binary (default: `$PATH`) |
+
+---
+
 ## Status
 
-🚧 **Early development.** Draw mode is the build target for v0.1.  
-TUI mode is v0.2.
+✅ **v0.1 and v0.2 complete** — draw mode and TUI mode are both implemented,
+tested (≥85% coverage on `internal/...`), and merged to `main`.
 
 ### Roadmap
 
 - [x] Design spec (`docs/SPEC.md`)
-- [ ] v0.1 — draw mode: clangd LSP client + tree printer
-- [ ] v0.2 — TUI mode: bubbletea model, thread/follow/spool
-- [ ] v0.3 — bundle (multi-thread tabs)
+- [x] v0.1 — draw mode: clangd LSP client + tree printer
+- [x] v0.2 — TUI mode: bubbletea model, thread/follow/spool
+- [x] v0.3 — bundle (multi-thread tabs)
 - [ ] v0.4 — multi-path find (`skein draw --path foo bar`)
 - [ ] vX.0 — split view (two threads side by side)
 - [ ] vX.1 — overlay mode (pinned threads in unified map)

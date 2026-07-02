@@ -5,6 +5,29 @@ import (
 	"testing"
 )
 
+func TestJumpToBundle(t *testing.T) {
+	tests := []struct {
+		name          string
+		active, count int
+		digit         int
+		want          int
+	}{
+		{"jump to 1 -> index 0", 5, 3, 1, 0},
+		{"jump to 3 -> index 2", 5, 3, 3, 2},
+		{"digit beyond bundle count is no-op", 1, 3, 5, 1},
+		{"digit 0 is no-op", 1, 3, 0, 1},
+		{"digit out of 1-9 range is no-op", 1, 3, 10, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := jumpToBundle(tt.active, tt.count, tt.digit)
+			if got != tt.want {
+				t.Errorf("jumpToBundle(%d,%d,%d) = %d, want %d", tt.active, tt.count, tt.digit, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPinBundle(t *testing.T) {
 	bundles := []bundle{{name: "tangle"}}
 	bundles, active := pinBundle(bundles, "Foo", threadState{name: "Foo"})

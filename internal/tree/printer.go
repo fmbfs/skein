@@ -10,8 +10,12 @@ import (
 )
 
 // Print renders a RelationMap as a tree(1)-style Unicode tree, matching the
-// format documented in README.md and docs/SPEC.md.
-func Print(w io.Writer, rm *compositor.RelationMap) {
+// format documented in README.md and docs/SPEC.md. By default the output is
+// monochrome; pass WithColour(true) to colourize "called in" (incoming, cyan)
+// and "calls" (outgoing, green) entries. Callers decide when colour is
+// appropriate (e.g. TTY detection, --no-color, NO_COLOR).
+func Print(w io.Writer, rm *compositor.RelationMap, opts ...Option) {
+	ro := resolveOpts(opts)
 	fmt.Fprintf(w, "%s  [%s]  ply:%d\n", rm.ThreadName, rm.Kind, rm.Ply)
 
 	type section func(isLast bool)
@@ -21,10 +25,10 @@ func Print(w io.Writer, rm *compositor.RelationMap) {
 		sections = append(sections, func(isLast bool) { printDefinedIn(w, rm, isLast) })
 	}
 	if len(rm.CalledIn) > 0 {
-		sections = append(sections, func(isLast bool) { printCalledIn(w, rm, isLast) })
+		sections = append(sections, func(isLast bool) { printCalledIn(w, rm, ro, isLast) })
 	}
 	if len(rm.Calls) > 0 {
-		sections = append(sections, func(isLast bool) { printCalls(w, rm, isLast) })
+		sections = append(sections, func(isLast bool) { printCalls(w, rm, ro, isLast) })
 	}
 
 	for i, s := range sections {
@@ -48,25 +52,25 @@ func printDefinedIn(w io.Writer, rm *compositor.RelationMap, isLast bool) {
 	}
 }
 
-func printCalledIn(w io.Writer, rm *compositor.RelationMap, isLast bool) {
+func printCalledIn(w io.Writer, rm *compositor.RelationMap, ro renderOpts, isLast bool) {
 	connector, cont := branch(isLast)
-	fmt.Fprintf(w, "%scalled in  (%d)\n", connector, rm.CalledInTotal())
+	fmt.Fprintf(w, "%s%s\n", connector, ro.incoming(fmt.Sprintf("called in  (%d)", rm.CalledInTotal())))
 
 	for fi, group := range rm.CalledIn {
 		fileConnector, fileCont := branch(fi == len(rm.CalledIn)-1)
-		fmt.Fprintf(w, "%s%s%s\n", cont, fileConnector, group.File)
+		fmt.Fprintf(w, "%s%s%s\n", cont, fileConnector, ro.incoming(group.File))
 		for li, line := range group.Lines {
 			lineConnector, _ := branch(li == len(group.Lines)-1)
-			fmt.Fprintf(w, "%s%s%s:%d\n", cont, fileCont, lineConnector, line)
+			fmt.Fprintf(w, "%s%s%s\n", cont, fileCont, ro.incoming(fmt.Sprintf("%s:%d", lineConnector, line)))
 		}
 	}
 }
 
-func printCalls(w io.Writer, rm *compositor.RelationMap, isLast bool) {
+func printCalls(w io.Writer, rm *compositor.RelationMap, ro renderOpts, isLast bool) {
 	connector, cont := branch(isLast)
-	fmt.Fprintf(w, "%scalls\n", connector)
+	fmt.Fprintf(w, "%s%s\n", connector, ro.outgoing("calls"))
 	for i, callee := range rm.Calls {
 		calleeConnector, _ := branch(i == len(rm.Calls)-1)
-		fmt.Fprintf(w, "%s%s%s\n", cont, calleeConnector, callee)
+		fmt.Fprintf(w, "%s%s\n", cont, ro.outgoing(fmt.Sprintf("%s%s", calleeConnector, callee)))
 	}
 }

@@ -24,6 +24,12 @@ const (
 const maxPly = 3
 const minPly = 1
 
+// defaultTUIStrandLimit is the strand-limit truncation budget used by the
+// TUI (docs/SPEC.md section 6's default of 50). The TUI has no --strands
+// flag of its own (that's a draw-mode-only concept), so it always applies
+// this default.
+const defaultTUIStrandLimit = 50
+
 // threadState is the composed, render-ready snapshot of one thread
 // (docs/SPEC.md vocabulary): the map panel's Node tree, plus everything
 // the detail panel needs. Snapshotting means switching bundles or
@@ -39,6 +45,7 @@ type threadState struct {
 	definedAt   string
 	container   string
 	ambiguous   []string
+	warning     string // non-empty when strand-limit truncation dropped content
 }
 
 // tangleState is the empty, no-thread entry state (docs/SPEC.md's
@@ -137,7 +144,7 @@ func resolvePinnedCmd(client *lsp.Client, rootDir, name string) tea.Cmd {
 }
 
 func resolveGeneric(client *lsp.Client, rootDir, name string, ply int, pinning bool) threadLoadedMsg {
-	matches, err := client.WorkspaceSymbol(name)
+	matches, err := compositor.ResolveSymbol(client, rootDir, name)
 	if err != nil {
 		return threadLoadedMsg{err: fmt.Errorf("workspace/symbol %q: %w", name, err)}
 	}
@@ -172,7 +179,11 @@ func loadMethod(client *lsp.Client, rootDir, name, classFilter string, ply int) 
 	if err != nil {
 		return threadLoadedMsg{err: err}
 	}
-	return threadLoadedMsg{state: threadStateFromRelationMap(rm, classFilter, ply)}
+	warning := combineWarnings(
+		rm.TruncateCalledIn(defaultTUIStrandLimit),
+		rm.TruncateCalls(defaultTUIStrandLimit),
+	)
+	return threadLoadedMsg{state: threadStateFromRelationMap(rm, classFilter, ply, warning)}
 }
 
 func loadClassCmd(client *lsp.Client, rootDir, name string) tea.Cmd {
@@ -185,7 +196,8 @@ func loadClass(client *lsp.Client, rootDir, name string) threadLoadedMsg {
 	if err != nil {
 		return threadLoadedMsg{err: err}
 	}
-	return threadLoadedMsg{state: threadStateFromClassMap(cm)}
+	warning := string(cm.TruncateMembers(defaultTUIStrandLimit))
+	return threadLoadedMsg{state: threadStateFromClassMap(cm, warning)}
 }
 
 func loadFileCmd(client *lsp.Client, rootDir, relOrAbsPath string) tea.Cmd {
@@ -199,7 +211,8 @@ func loadFileCmd(client *lsp.Client, rootDir, relOrAbsPath string) tea.Cmd {
 		if err != nil {
 			return threadLoadedMsg{err: err}
 		}
-		return threadLoadedMsg{state: threadStateFromFileMap(fm)}
+		warning := string(fm.TruncateSymbols(defaultTUIStrandLimit))
+		return threadLoadedMsg{state: threadStateFromFileMap(fm, warning)}
 	}
 }
 
@@ -210,7 +223,7 @@ func searchCmd(client *lsp.Client, query string) tea.Cmd {
 	}
 }
 
-func threadStateFromRelationMap(rm *compositor.RelationMap, classFilter string, ply int) threadState {
+func threadStateFromRelationMap(rm *compositor.RelationMap, classFilter string, ply int, warning string) threadState {
 	return threadState{
 		name:        rm.ThreadName,
 		kind:        rm.Kind,
@@ -221,24 +234,40 @@ func threadStateFromRelationMap(rm *compositor.RelationMap, classFilter string, 
 		definedAt:   locationString(rm.DefinedAt),
 		container:   rm.Container,
 		ambiguous:   rm.Ambiguous,
+		warning:     warning,
 	}
 }
 
-func threadStateFromClassMap(cm *compositor.ClassMap) threadState {
+func threadStateFromClassMap(cm *compositor.ClassMap, warning string) threadState {
 	return threadState{
 		name:      cm.ThreadName,
 		kind:      cm.Kind,
 		nodes:     buildClassTree(cm),
 		definedAt: locationString(cm.DefinedAt),
+		warning:   warning,
 	}
 }
 
-func threadStateFromFileMap(fm *compositor.FileMap) threadState {
+func threadStateFromFileMap(fm *compositor.FileMap, warning string) threadState {
 	return threadState{
-		name:  fm.ThreadName,
-		kind:  fm.Kind,
-		nodes: buildFileTree(fm),
+		name:    fm.ThreadName,
+		kind:    fm.Kind,
+		nodes:   buildFileTree(fm),
+		warning: warning,
 	}
+}
+
+// combineWarnings joins any non-empty truncation warnings with a space,
+// since a single load can truncate more than one section (e.g. both
+// CalledIn and Calls) and both should be visible to the user.
+func combineWarnings(warnings ...compositor.TruncationWarning) string {
+	var parts []string
+	for _, w := range warnings {
+		if w != "" {
+			parts = append(parts, string(w))
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func locationString(loc compositor.Location) string {
@@ -358,8 +387,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.ToggleOut):
 		m.showOut = !m.showOut
 		return m, nil
+	case isBundleDigitKey(msg):
+		m.activeBundle = jumpToBundle(m.activeBundle, len(m.bundles), int(msg.String()[0]-'0'))
+		return m, nil
 	}
 	return m, nil
+}
+
+// isBundleDigitKey reports whether msg is a single "1".."9" keypress, used
+// for docs/SPEC.md section 7's bundle-jump shortcut. Bounds are re-checked
+// by jumpToBundle itself; this just filters to plausible digit runes so the
+// switch above doesn't have to enumerate nine separate key.Binding cases.
+func isBundleDigitKey(msg tea.KeyMsg) bool {
+	s := msg.String()
+	return len(s) == 1 && s[0] >= '1' && s[0] <= '9'
 }
 
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

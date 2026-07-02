@@ -326,7 +326,7 @@ func TestThreadStateFromRelationMap(t *testing.T) {
 		Container:  "MyClass",
 		Ambiguous:  []string{"Other"},
 	}
-	ts := threadStateFromRelationMap(rm, "MyClass", 2)
+	ts := threadStateFromRelationMap(rm, "MyClass", 2, "")
 	if ts.name != "Foo" || ts.classFilter != "MyClass" || ts.ply != 2 || ts.container != "MyClass" {
 		t.Errorf("threadStateFromRelationMap = %+v", ts)
 	}
@@ -335,9 +335,17 @@ func TestThreadStateFromRelationMap(t *testing.T) {
 	}
 }
 
+func TestThreadStateFromRelationMap_Warning(t *testing.T) {
+	rm := &compositor.RelationMap{ThreadName: "Foo", Kind: "method"}
+	ts := threadStateFromRelationMap(rm, "", 1, "some truncation warning")
+	if ts.warning != "some truncation warning" {
+		t.Errorf("warning = %q, want %q", ts.warning, "some truncation warning")
+	}
+}
+
 func TestThreadStateFromClassMap(t *testing.T) {
 	cm := &compositor.ClassMap{ThreadName: "MyClass", Kind: "class"}
-	ts := threadStateFromClassMap(cm)
+	ts := threadStateFromClassMap(cm, "")
 	if ts.name != "MyClass" || ts.kind != "class" {
 		t.Errorf("threadStateFromClassMap = %+v", ts)
 	}
@@ -345,9 +353,40 @@ func TestThreadStateFromClassMap(t *testing.T) {
 
 func TestThreadStateFromFileMap(t *testing.T) {
 	fm := &compositor.FileMap{ThreadName: "foo.cpp", Kind: "file"}
-	ts := threadStateFromFileMap(fm)
+	ts := threadStateFromFileMap(fm, "")
 	if ts.name != "foo.cpp" || ts.kind != "file" {
 		t.Errorf("threadStateFromFileMap = %+v", ts)
+	}
+}
+
+func TestCombineWarnings(t *testing.T) {
+	got := combineWarnings("", compositor.TruncationWarning("a"), "", compositor.TruncationWarning("b"))
+	if got != "a b" {
+		t.Errorf("combineWarnings = %q, want %q", got, "a b")
+	}
+	if got := combineWarnings("", ""); got != "" {
+		t.Errorf("combineWarnings(all empty) = %q, want empty", got)
+	}
+}
+
+func TestHandleKeyDigitJumpsToBundle(t *testing.T) {
+	m := newTestModel()
+	m.bundles = append(m.bundles, bundle{name: "b1"}, bundle{name: "b2"})
+	m.activeBundle = 0
+	newModel, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+	got := newModel.(Model)
+	if got.activeBundle != 2 {
+		t.Errorf("activeBundle after pressing '3' = %d, want 2", got.activeBundle)
+	}
+}
+
+func TestHandleKeyDigitBeyondBundleCountIsNoop(t *testing.T) {
+	m := newTestModel()
+	m.activeBundle = 0
+	newModel, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
+	got := newModel.(Model)
+	if got.activeBundle != 0 {
+		t.Errorf("activeBundle after pressing '9' with only 1 bundle = %d, want 0 (no-op)", got.activeBundle)
 	}
 }
 

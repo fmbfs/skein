@@ -103,6 +103,21 @@ func (b *base) findWorkspaceSymbol(name string) ([]lsp.SymbolInformation, error)
 	}
 }
 
+// ResolveSymbol performs the same clangd cold-start indexing workaround
+// (nudgeIndexer) plus stabilised-retry loop (findWorkspaceSymbol) that every
+// compositor's Build method uses internally, but exposed for callers doing
+// generic symbol resolution outside of any specific Build call — the TUI's
+// initial-symbol resolution (`skein <symbol>`) and `skein draw -s <symbol>`.
+// Without this, a bare client.WorkspaceSymbol call is flaky-to-broken: it
+// reliably returns nothing until some translation unit has been opened and
+// the index has had time to populate (see nudgeIndexer's doc comment for
+// the empirical finding this fixes).
+func ResolveSymbol(client languageClient, rootDir, name string) ([]lsp.SymbolInformation, error) {
+	b := &base{Client: client, RootDir: rootDir}
+	_ = b.nudgeIndexer() // best-effort; findWorkspaceSymbol still retries either way
+	return b.findWorkspaceSymbol(name)
+}
+
 func isSourceFile(path string) bool {
 	switch filepath.Ext(path) {
 	case ".cpp", ".cc", ".cxx", ".c":

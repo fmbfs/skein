@@ -13,6 +13,7 @@ const (
 	colourBorder      = lipgloss.Color("240")
 	colourBorderFocus = lipgloss.Color("205")
 	colourError       = lipgloss.Color("9")
+	colourWarning     = lipgloss.Color("11") // yellow
 )
 
 // Note: docs/SPEC.md section 5 also defines a "bidirectional" (yellow)
@@ -54,6 +55,7 @@ var (
 	outgoingStyle = lipgloss.NewStyle().Foreground(colourOutgoing)
 	mutedStyle    = lipgloss.NewStyle().Foreground(colourMuted)
 	errorStyle    = lipgloss.NewStyle().Foreground(colourError).Bold(true)
+	warningStyle  = lipgloss.NewStyle().Foreground(colourWarning)
 
 	searchBarStyle = lipgloss.NewStyle().
 			Padding(0, 1).

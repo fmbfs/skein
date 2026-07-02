@@ -46,6 +46,9 @@ func (m Model) renderStatusBar(t *threadState) string {
 	spool := len(m.bundles[m.activeBundle].back) + 1
 	status := fmt.Sprintf("skein  ·  %s  [%s]  ply:%d  strands:%d  spool:%d",
 		t.name, t.kind, t.ply, strands, spool)
+	if t.warning != "" {
+		status = fmt.Sprintf("%s  ·  %s", status, warningStyle.Render(t.warning))
+	}
 	if m.err != nil {
 		status = fmt.Sprintf("skein  ·  %s", errorStyle.Render(m.err.Error()))
 	}

@@ -60,6 +60,18 @@ func closeBundle(bundles []bundle, i, active int) ([]bundle, int) {
 	return bundles, active
 }
 
+// jumpToBundle maps digit key "1".."9" to bundle index 0..8 (docs/SPEC.md
+// section 7: "1-9: jump to bundle N"), clamped to the current bundle count.
+// Digits beyond the number of open bundles, or "0", are no-ops (return the
+// current active index unchanged).
+func jumpToBundle(active, count int, digit int) int {
+	idx := digit - 1
+	if digit < 1 || digit > 9 || idx >= count {
+		return active
+	}
+	return idx
+}
+
 // cycleBundle moves the active index by delta, wrapping around.
 func cycleBundle(active, count, delta int) int {
 	if count == 0 {
