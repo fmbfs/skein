@@ -124,6 +124,20 @@ func renderLine(fn flatNode, selected bool) string {
 		}
 	}
 
+	// When selected, skip direction colouring entirely and render the raw
+	// prefix+label text through selectedLineStyle alone. Nesting an
+	// already-ANSI-coloured label (incomingStyle/outgoingStyle) inside
+	// selectedLineStyle's Render call previously let the label's own
+	// embedded foreground escape code override selectedLineStyle's
+	// contrast-guaranteed foreground later in the same string — the
+	// highlighted row silently lost its readable colour on any
+	// incoming/outgoing-tagged node (found while investigating a reported
+	// "hard to read pink highlight" bug: it also affected coloured rows,
+	// not just neutral ones).
+	if selected {
+		return selectedLineStyle.Render(prefix.String() + fn.node.Label)
+	}
+
 	label := fn.node.Label
 	switch fn.node.Direction {
 	case directionIncoming:
@@ -131,14 +145,20 @@ func renderLine(fn flatNode, selected bool) string {
 	case directionOutgoing:
 		label = outgoingStyle.Render(label)
 	case directionNeutral:
-		// no colouring
+		// A neutral (uncoloured) row is ambiguous on its own: section
+		// headers like "members (3)" and non-followable leaves like a
+		// class field render identically to followable leaves like a
+		// method member — nothing on screen hinted which rows <enter>
+		// would actually act on (reported directly: "the follow
+		// mechanic" felt broken because nothing indicated what was
+		// followable). Dim the ones <enter> can't do anything with, so
+		// the followable rows stand out by contrast.
+		if fn.node.Follow == followNone {
+			label = mutedStyle.Render(label)
+		}
 	}
 
-	line := prefix.String() + label
-	if selected {
-		return selectedLineStyle.Render(line)
-	}
-	return line
+	return prefix.String() + label
 }
 
 // buildMethodTree adapts a composed RelationMap into the unified Node tree

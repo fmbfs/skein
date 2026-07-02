@@ -43,6 +43,20 @@ func TestDetailForCursorOutOfRange(t *testing.T) {
 	}
 }
 
+// TestDetailForNonFollowableNodeSaysSo is the regression test for a
+// reported "follow mechanic" confusion: pressing <enter> on a
+// non-followable node (e.g. a class field, or a section header) was a
+// silent no-op with zero on-screen indication that nothing would happen.
+// The detail panel must say so explicitly instead of just omitting the
+// follow hint.
+func TestDetailForNonFollowableNodeSaysSo(t *testing.T) {
+	th := &threadState{name: "Foo", kind: "class", cursor: 0}
+	got := detailFor(th, []Node{{Label: "counter_ [field]", Follow: followNone}})
+	if !strings.Contains(got, "not followable") {
+		t.Errorf("detailFor for a non-followable node = %q, want it to explicitly say so", got)
+	}
+}
+
 func TestFollowHint(t *testing.T) {
 	if got := followHint(followNone); got != "" {
 		t.Errorf("followHint(followNone) = %q, want empty", got)

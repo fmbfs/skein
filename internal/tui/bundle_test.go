@@ -40,6 +40,12 @@ func TestPinBundle(t *testing.T) {
 	if bundles[1].name != "Foo" || bundles[1].thread.name != "Foo" || bundles[1].origin.name != "Foo" {
 		t.Errorf("pinned bundle = %+v, want name/thread/origin = Foo", bundles[1])
 	}
+	if !bundles[1].pinned {
+		t.Errorf("pinned bundle = %+v, want pinned=true so pinCurrent can later toggle it off", bundles[1])
+	}
+	if bundles[0].pinned {
+		t.Errorf("original tangle bundle = %+v, want pinned=false", bundles[0])
+	}
 }
 
 func TestCloseBundleRefusesLastOne(t *testing.T) {

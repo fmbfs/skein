@@ -43,6 +43,8 @@ func detailFor(t *threadState, visible []Node) string {
 		fmt.Fprintf(&b, "selected:\n  %s\n", n.Label)
 		if n.Follow != followNone {
 			b.WriteString(followHint(n.Follow) + "\n")
+		} else {
+			b.WriteString(mutedStyle.Render("[not followable — informational only]") + "\n")
 		}
 	}
 

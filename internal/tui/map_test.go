@@ -216,6 +216,41 @@ func TestBuildFileTree(t *testing.T) {
 	}
 }
 
+func TestRenderLineSelectedDirectionColouredNodeDoesNotBleedColour(t *testing.T) {
+	// Regression test: a selected outgoing/incoming-tagged node used to
+	// render its label through incomingStyle/outgoingStyle *and then*
+	// wrap that already-ANSI-coloured string in selectedLineStyle. Because
+	// lipgloss just concatenates raw escape codes, the label's own
+	// embedded colour code came later in the string than
+	// selectedLineStyle's foreground code and silently overrode it —
+	// so a selected coloured row lost the guaranteed-contrast colour the
+	// pink-highlight fix relied on. Selected rows must render the label
+	// exclusively through selectedLineStyle, with no direction colouring
+	// mixed in.
+	fn := flatNode{node: &Node{Label: "callee", Direction: directionOutgoing}}
+	got := renderLine(fn, true)
+	want := selectedLineStyle.Render("callee")
+	if got != want {
+		t.Errorf("renderLine(selected, outgoing) = %q, want %q (selectedLineStyle only, no outgoingStyle colour mixed in)", got, want)
+	}
+}
+
+func TestRenderLineDimsNonFollowableNeutralNodes(t *testing.T) {
+	followable := flatNode{node: &Node{Label: "processFrame [method]", Follow: followMethod}}
+	notFollowable := flatNode{node: &Node{Label: "counter_ [field]", Follow: followNone}}
+
+	gotFollowable := renderLine(followable, false)
+	gotNotFollowable := renderLine(notFollowable, false)
+
+	if gotFollowable != "processFrame [method]" {
+		t.Errorf("renderLine(followable) = %q, want the plain label undimmed", gotFollowable)
+	}
+	wantDimmed := mutedStyle.Render("counter_ [field]")
+	if gotNotFollowable != wantDimmed {
+		t.Errorf("renderLine(non-followable neutral) = %q, want %q (dimmed via mutedStyle so it's visually distinct from a followable row)", gotNotFollowable, wantDimmed)
+	}
+}
+
 func TestRenderMapDeepTreeAllBranches(t *testing.T) {
 	// Exercise every renderLine branch: multi-level depth, both "last" and
 	// "not last" siblings, and both incoming/outgoing colour-coding.
