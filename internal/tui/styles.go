@@ -14,6 +14,16 @@ const (
 	colourBorderFocus = lipgloss.Color("205")
 	colourError       = lipgloss.Color("9")
 	colourWarning     = lipgloss.Color("11") // yellow
+
+	// colourOnAccent is the text colour used on top of colourAccent
+	// backgrounds (the active bundle tab, the selected search result).
+	// Deliberately "16" (the 256-colour cube's pure black), not the
+	// terminal-theme-remappable ANSI slot "0" — many terminal themes
+	// (including a pink-accented prompt theme, confirmed by direct user
+	// report) recolour palette slot 0 away from true black, making text
+	// nearly invisible against the pink highlight. "16" always renders as
+	// actual black regardless of the user's 16-colour theme.
+	colourOnAccent = lipgloss.Color("16")
 )
 
 // Note: docs/SPEC.md section 5 also defines a "bidirectional" (yellow)
@@ -34,7 +44,7 @@ var (
 			Padding(0, 1)
 
 	bundleTabActiveStyle = bundleTabStyle.
-				Foreground(lipgloss.Color("0")).
+				Foreground(colourOnAccent).
 				Background(colourAccent).
 				Bold(true)
 
@@ -48,7 +58,7 @@ var (
 
 	selectedLineStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("0")).
+				Foreground(colourOnAccent).
 				Background(colourAccent)
 
 	incomingStyle = lipgloss.NewStyle().Foreground(colourIncoming)

@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"github.com/fmbfs/skein/internal/lsp"
 )
 
 func TestRenderStatusBarShowsWarning(t *testing.T) {
@@ -95,6 +97,32 @@ func TestModelViewQuittingReturnsEmpty(t *testing.T) {
 	m.quitting = true
 	if out := m.View(); out != "" {
 		t.Errorf("View() while quitting = %q, want empty", out)
+	}
+}
+
+// TestModelViewWithManySearchResultsStaysWithinHeight is the regression
+// test for a reported bug: "when typing the typing box gets overwhelmed
+// with the results and we cannot see what we are writing". A broad query
+// can return far more than fits on screen; View() must reserve exactly
+// enough room for the search bar so the input line and footer hints never
+// scroll off the top of a fixed-height terminal.
+func TestModelViewWithManySearchResultsStaysWithinHeight(t *testing.T) {
+	m := newTestModel()
+	m.width = 100
+	m.height = 24
+	m.focus = focusSearch
+	m.search.input.SetValue("common")
+	for i := 0; i < 20; i++ {
+		m.search.results = append(m.search.results, lsp.SymbolInformation{Name: "Sym"})
+	}
+
+	out := m.View()
+	lines := strings.Split(out, "\n")
+	if len(lines) > m.height {
+		t.Errorf("View() rendered %d lines, want at most %d (terminal height) — search bar overwhelmed the layout", len(lines), m.height)
+	}
+	if !strings.Contains(out, "> common") {
+		t.Errorf("View() output missing the visible input line:\n%s", out)
 	}
 }
 

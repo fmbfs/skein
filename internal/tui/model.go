@@ -423,13 +423,26 @@ func isBundleDigitKey(msg tea.KeyMsg) bool {
 func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Escape):
+		m.search.pushHistory(m.search.input.Value())
 		m.search.reset()
 		m.focus = focusMap
 		return m, nil
 	case key.Matches(msg, keys.ResultUp):
+		// With no results to navigate (nothing typed yet, or the last
+		// query came back empty), up/down instead recall past searches —
+		// shell-history style — so a recent query can be re-run without
+		// retyping it (docs/SPEC.md's "last 5 searches" request).
+		if len(m.search.results) == 0 {
+			m.search.historyPrev()
+			return m, nil
+		}
 		m.search.moveCursor(-1)
 		return m, nil
 	case key.Matches(msg, keys.ResultDown):
+		if len(m.search.results) == 0 {
+			m.search.historyNext()
+			return m, nil
+		}
 		m.search.moveCursor(1)
 		return m, nil
 	case key.Matches(msg, keys.SelectResult):
@@ -451,6 +464,7 @@ func (m Model) followSearchResult() (tea.Model, tea.Cmd) {
 	if sel == nil {
 		return m, nil
 	}
+	m.search.pushHistory(m.search.input.Value())
 	m.search.reset()
 	m.focus = focusMap
 

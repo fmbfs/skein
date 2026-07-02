@@ -9,12 +9,17 @@ import (
 )
 
 func TestHintsForFocus(t *testing.T) {
-	search := hints(focusSearch)
+	search := hints(focusSearch, true)
 	if !strings.Contains(search, "select result") {
 		t.Errorf("search hints = %q, want it to mention selecting a result", search)
 	}
 
-	mapHints := hints(focusMap)
+	searchNoResults := hints(focusSearch, false)
+	if !strings.Contains(searchNoResults, "recall search") {
+		t.Errorf("search hints with no results = %q, want it to mention recalling a search", searchNoResults)
+	}
+
+	mapHints := hints(focusMap, false)
 	if !strings.Contains(mapHints, "follow") {
 		t.Errorf("map hints = %q, want it to mention follow", mapHints)
 	}
