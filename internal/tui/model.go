@@ -100,16 +100,33 @@ func New(client *lsp.Client, rootDir, initialSymbol, pinned string) Model {
 }
 
 // Init kicks off resolution of the initial symbol (and pinned symbol, if
-// any) passed on the command line.
+// any) passed on the command line. When no initial symbol was given (a bare
+// `skein` launch straight into interactive search), it instead nudges
+// clangd's indexer directly — resolveGeneric would otherwise be the only
+// thing that ever does this, so without it every search from a cold start
+// returns nothing indefinitely (see compositor.NudgeIndexer's doc comment).
 func (m Model) Init() tea.Cmd {
 	if m.pendingInitial == "" {
-		return nil
+		return nudgeIndexerCmd(m.client, m.rootDir)
 	}
 	cmds := []tea.Cmd{resolveGenericCmd(m.client, m.rootDir, m.pendingInitial, minPly)}
 	if m.pendingPinned != "" {
 		cmds = append(cmds, resolvePinnedCmd(m.client, m.rootDir, m.pendingPinned))
 	}
 	return tea.Batch(cmds...)
+}
+
+// indexerNudgedMsg is a no-op result message for nudgeIndexerCmd — nothing
+// in the UI needs to react to it (it's best-effort background work), but a
+// concrete message type keeps the tea.Cmd contract explicit and testable
+// rather than silently returning nil.
+type indexerNudgedMsg struct{}
+
+func nudgeIndexerCmd(client *lsp.Client, rootDir string) tea.Cmd {
+	return func() tea.Msg {
+		_ = compositor.NudgeIndexer(client, rootDir) // best-effort
+		return indexerNudgedMsg{}
+	}
 }
 
 // --- messages -----------------------------------------------------------

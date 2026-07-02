@@ -25,10 +25,22 @@ func TestNewSetsUpTangleBundle(t *testing.T) {
 	}
 }
 
-func TestInitNoPendingSymbolReturnsNil(t *testing.T) {
+// TestInitNoPendingSymbolNudgesIndexer is the regression test for a bare
+// `skein` launch (no CLI symbol) leaving clangd's indexer never nudged: a
+// user going straight to interactive search (`/`) would then find every
+// search silently returns nothing forever, since clangd's background index
+// never populates without at least one textDocument/didOpen (see
+// compositor.NudgeIndexer's doc comment). Init() must still return a
+// non-nil cmd in this case so the nudge actually happens.
+func TestInitNoPendingSymbolNudgesIndexer(t *testing.T) {
 	m := New(nil, "/root", "", "")
-	if cmd := m.Init(); cmd != nil {
-		t.Error("Init() with no pending symbol should return a nil cmd")
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("Init() with no pending symbol should still return a non-nil cmd (indexer nudge)")
+	}
+	msg := cmd()
+	if _, ok := msg.(indexerNudgedMsg); !ok {
+		t.Errorf("Init()'s cmd produced %T, want indexerNudgedMsg", msg)
 	}
 }
 

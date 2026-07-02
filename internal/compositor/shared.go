@@ -118,6 +118,18 @@ func ResolveSymbol(client languageClient, rootDir, name string) ([]lsp.SymbolInf
 	return b.findWorkspaceSymbol(name)
 }
 
+// NudgeIndexer opens one translation unit from compile_commands.json so
+// clangd's background index actually starts (see base.nudgeIndexer's doc
+// comment for why this is necessary). Exposed for callers that need to kick
+// off indexing without an accompanying symbol resolution — e.g. the TUI's
+// startup, when the user launches `skein` with no initial symbol and goes
+// straight to interactive search. Without this, clangd's index never
+// populates and every search returns nothing indefinitely.
+func NudgeIndexer(client languageClient, rootDir string) error {
+	b := &base{Client: client, RootDir: rootDir}
+	return b.nudgeIndexer()
+}
+
 func isSourceFile(path string) bool {
 	switch filepath.Ext(path) {
 	case ".cpp", ".cc", ".cxx", ".c":
