@@ -58,6 +58,16 @@ func printCalledIn(w io.Writer, rm *compositor.RelationMap, ro renderOpts, isLas
 
 	for fi, group := range rm.CalledIn {
 		fileConnector, fileCont := branch(fi == len(rm.CalledIn)-1)
+		// A single call site folds its line onto the file's own row
+		// (e.g. "main.cpp :21") instead of a separate nested line —
+		// otherwise a lone ":21" child with nothing else in its branch
+		// dangles below the file with no visual connection to it.
+		// Multi-line groups keep the file-header + per-line-children
+		// structure, matching internal/tui/map.go's buildMethodTree.
+		if len(group.Lines) == 1 {
+			fmt.Fprintf(w, "%s%s%s\n", cont, fileConnector, ro.incoming(fmt.Sprintf("%s :%d", group.File, group.Lines[0])))
+			continue
+		}
 		fmt.Fprintf(w, "%s%s%s\n", cont, fileConnector, ro.incoming(group.File))
 		for li, line := range group.Lines {
 			lineConnector, _ := branch(li == len(group.Lines)-1)
