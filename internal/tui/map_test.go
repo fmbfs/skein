@@ -173,6 +173,61 @@ func TestBuildMethodTreeMinimal(t *testing.T) {
 	}
 }
 
+// TestBuildMethodTree_SingleCallSiteFoldsLineOntoFile is the regression
+// test for a reported rendering bug: a file with exactly one call site
+// used to render as the file name on one line with a dangling ":21" child
+// line beneath it (nothing else in that branch), which read as broken
+// tree-drawing rather than the call site it actually was. A single call
+// site should fold its line number onto the file's own row instead.
+func TestBuildMethodTree_SingleCallSiteFoldsLineOntoFile(t *testing.T) {
+	rm := &compositor.RelationMap{
+		ThreadName: "Foo",
+		CalledIn: []compositor.CalledInGroup{
+			{File: "../src/clients/dtc/src/SafeDTC.cpp", Lines: []int{21}},
+		},
+	}
+	nodes := buildMethodTree(rm)
+	calledIn := nodes[0]
+	if len(calledIn.Children) != 1 {
+		t.Fatalf("calledIn.Children = %+v, want exactly 1 (no separate file/line split)", calledIn.Children)
+	}
+	child := calledIn.Children[0]
+	if child.Children != nil {
+		t.Errorf("child.Children = %+v, want no grandchildren for a single call site", child.Children)
+	}
+	wantLabel := "../src/clients/dtc/src/SafeDTC.cpp :21"
+	if child.Label != wantLabel {
+		t.Errorf("child.Label = %q, want %q", child.Label, wantLabel)
+	}
+	if child.Follow != followFile || child.Target != "../src/clients/dtc/src/SafeDTC.cpp" {
+		t.Errorf("child = %+v, want followFile target the file path", child)
+	}
+}
+
+// TestBuildMethodTree_MultipleCallSitesKeepFileGrouping confirms a file
+// with more than one call site still renders as a file header with each
+// line as a separate followable child (the single-site fold above must
+// not collapse multi-site groups).
+func TestBuildMethodTree_MultipleCallSitesKeepFileGrouping(t *testing.T) {
+	rm := &compositor.RelationMap{
+		ThreadName: "Foo",
+		CalledIn: []compositor.CalledInGroup{
+			{File: "b.cpp", Lines: []int{5, 6, 7}},
+		},
+	}
+	nodes := buildMethodTree(rm)
+	calledIn := nodes[0]
+	if len(calledIn.Children) != 1 || calledIn.Children[0].Label != "b.cpp" {
+		t.Fatalf("calledIn.Children = %+v, want 1 file node labelled 'b.cpp'", calledIn.Children)
+	}
+	if len(calledIn.Children[0].Children) != 3 {
+		t.Fatalf("file node children = %+v, want 3 line children", calledIn.Children[0].Children)
+	}
+	if calledIn.Children[0].Children[0].Label != ":5" {
+		t.Errorf("first line child label = %q, want %q", calledIn.Children[0].Children[0].Label, ":5")
+	}
+}
+
 func TestBuildClassTree(t *testing.T) {
 	cm := &compositor.ClassMap{
 		ThreadName:  "Base",

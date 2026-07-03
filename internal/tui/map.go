@@ -195,16 +195,31 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 			Direction: directionIncoming,
 		}
 		for _, group := range rm.CalledIn {
-			fileNode := Node{Label: group.File, Direction: directionIncoming}
-			for _, line := range group.Lines {
-				fileNode.Children = append(fileNode.Children, Node{
-					Label:     fmt.Sprintf(":%d", line),
+			if len(group.Lines) == 1 {
+				// A single call site: fold the line number onto the file's
+				// own line ("SafeDTC.cpp :21") instead of a separate child
+				// row underneath it. A lone ":21" dangling below its file
+				// with nothing else in that branch read as a rendering bug
+				// (reported directly from a screenshot) rather than the
+				// call site it actually was.
+				calledIn.Children = append(calledIn.Children, Node{
+					Label:     fmt.Sprintf("%s :%d", group.File, group.Lines[0]),
 					Direction: directionIncoming,
 					// Following a call site opens that file — skein doesn't
 					// yet resolve the enclosing caller symbol at a bare
 					// location (see docs/SPEC.md section 8, path-finding).
 					Follow: followFile,
 					Target: group.File,
+				})
+				continue
+			}
+			fileNode := Node{Label: group.File, Direction: directionIncoming}
+			for _, line := range group.Lines {
+				fileNode.Children = append(fileNode.Children, Node{
+					Label:     fmt.Sprintf(":%d", line),
+					Direction: directionIncoming,
+					Follow:    followFile,
+					Target:    group.File,
 				})
 			}
 			calledIn.Children = append(calledIn.Children, fileNode)
