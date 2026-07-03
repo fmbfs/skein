@@ -237,6 +237,60 @@ func TestFollowMethodPushesSpoolAndReturnsCmd(t *testing.T) {
 	}
 }
 
+// TestGotoSelectedNoneIsNoop confirms g on a node with no GotoPath and no
+// Follow target (e.g. a section header) does nothing.
+func TestGotoSelectedNoneIsNoop(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{
+		name: "Foo", kind: "method",
+		nodes: []Node{{Label: "header"}},
+	}
+	_, cmd := m.gotoSelected()
+	if cmd != nil {
+		t.Error("expected nil cmd for a goto-less, follow-less node")
+	}
+}
+
+// TestGotoSelectedWithKnownPathReturnsCmd covers the fast path: a node
+// that already carries a GotoPath (definitions, call sites) should jump
+// straight to an editor-launching cmd without needing an LSP round trip.
+func TestGotoSelectedWithKnownPathReturnsCmd(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{
+		name: "Foo", kind: "method",
+		nodes: []Node{{Label: "defined in foo.cpp:12", GotoPath: "foo.cpp", GotoLine: 12}},
+	}
+	_, cmd := m.gotoSelected()
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd for a node with a known GotoPath")
+	}
+}
+
+// TestGotoSelectedResolveFallbackReturnsCmd covers a symbol-target node
+// with no baked-in location (e.g. a call or member) — it must fall back
+// to gotoResolveCmd instead of being a no-op.
+func TestGotoSelectedResolveFallbackReturnsCmd(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{
+		name: "Foo", kind: "method",
+		nodes: []Node{{Label: "calls Bar", Follow: followMethod, Target: "Bar"}},
+	}
+	_, cmd := m.gotoSelected()
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd falling back to workspace/symbol resolution")
+	}
+}
+
+// TestGotoSelectedOutOfBoundsCursorIsNoop mirrors follow()'s cursor guard.
+func TestGotoSelectedOutOfBoundsCursorIsNoop(t *testing.T) {
+	m := newTestModel()
+	m.bundles[0].thread = threadState{name: "Foo", kind: "method", cursor: 5}
+	_, cmd := m.gotoSelected()
+	if cmd != nil {
+		t.Error("expected nil cmd for an out-of-bounds cursor")
+	}
+}
+
 func TestSpoolBackForwardReset(t *testing.T) {
 	m := newTestModel()
 	origin := threadState{name: "origin"}
@@ -417,12 +471,12 @@ func TestPinCurrent(t *testing.T) {
 	}
 }
 
-// TestPinCurrentTogglesUnpinOnAlreadyPinnedTab is the regression test for
-// a reported bug: "we are unable to unpin". Pressing p repeatedly kept
-// stacking indistinguishable duplicate bundles with no obvious way back —
-// pressing p while already on a pinned tab must instead close it (unpin),
-// mirroring the x key rather than creating yet another duplicate.
-func TestPinCurrentTogglesUnpinOnAlreadyPinnedTab(t *testing.T) {
+// TestPinCurrentAlwaysCreatesNewBundle replaces the old toggle-to-unpin
+// behaviour: p now always stacks a new tab, even when pressed again from
+// an already-pinned tab, so repeated pinning (e.g. to compare the same
+// symbol at different ply/filter settings) reliably works instead of
+// sometimes closing the tab you just made.
+func TestPinCurrentAlwaysCreatesNewBundle(t *testing.T) {
 	m := newTestModel()
 	m.bundles[0].thread = threadState{name: "Foo"}
 	m = m.pinCurrent() // pin -> now on the new "Foo" tab
@@ -430,23 +484,35 @@ func TestPinCurrentTogglesUnpinOnAlreadyPinnedTab(t *testing.T) {
 		t.Fatalf("expected 2 bundles after pinning, got %d", len(m.bundles))
 	}
 
-	m = m.pinCurrent() // press p again on the pinned tab -> should unpin
-	if len(m.bundles) != 1 {
-		t.Errorf("bundles after re-pressing p on a pinned tab = %+v, want it unpinned back to 1", m.bundles)
+	m = m.pinCurrent() // press p again on the pinned tab -> stacks another
+	if len(m.bundles) != 3 {
+		t.Errorf("bundles after re-pressing p on a pinned tab = %+v, want 3 (stack, not unpin)", m.bundles)
 	}
 }
 
-// TestPinCurrentDoesNotToggleFromTangleTab confirms the tangle (unpinned
-// entry) tab is never itself treated as "pinned" — pressing p there always
-// creates a new bundle rather than trying to close the tangle.
-func TestPinCurrentDoesNotToggleFromTangleTab(t *testing.T) {
+// TestUnpinCurrentClosesPinnedTab is the regression test for the reported
+// "we are unable to unpin" bug: u must close the active bundle when it's
+// a pinned tab.
+func TestUnpinCurrentClosesPinnedTab(t *testing.T) {
 	m := newTestModel()
 	m.bundles[0].thread = threadState{name: "Foo"}
 	m = m.pinCurrent()
-	m.activeBundle = 0 // back to tangle
-	m = m.pinCurrent()
-	if len(m.bundles) != 3 {
-		t.Errorf("bundles after pinning again from tangle = %+v, want 3 (a new pin, not an unpin)", m.bundles)
+	if len(m.bundles) != 2 {
+		t.Fatalf("expected 2 bundles after pinning, got %d", len(m.bundles))
+	}
+	m = m.unpinCurrent()
+	if len(m.bundles) != 1 {
+		t.Errorf("bundles after unpinCurrent = %+v, want 1", m.bundles)
+	}
+}
+
+// TestUnpinCurrentIsNoopOnTangleTab confirms the original "tangle" entry
+// bundle can never be unpinned (there's nothing to unpin there).
+func TestUnpinCurrentIsNoopOnTangleTab(t *testing.T) {
+	m := newTestModel()
+	m = m.unpinCurrent()
+	if len(m.bundles) != 1 {
+		t.Errorf("bundles after unpinCurrent on tangle tab = %+v, want unchanged 1", m.bundles)
 	}
 }
 
@@ -465,6 +531,76 @@ func TestUpdateWindowSizeMsg(t *testing.T) {
 	gm := got.(Model)
 	if gm.width != 100 || gm.height != 40 {
 		t.Errorf("width/height = %d/%d, want 100/40", gm.width, gm.height)
+	}
+}
+
+// TestUpdateGotoResolvedMsgError surfaces a failed workspace/symbol
+// resolution as the status-bar error, rather than silently dropping it.
+func TestUpdateGotoResolvedMsgError(t *testing.T) {
+	m := newTestModel()
+	got, cmd := m.Update(gotoResolvedMsg{err: errors.New("not found")})
+	gm := got.(Model)
+	if gm.err == nil {
+		t.Error("expected err to be set on a failed goto resolution")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd on a failed goto resolution")
+	}
+}
+
+// TestUpdateGotoResolvedMsgSuccessReturnsExecCmd confirms a successful
+// resolution launches the editor (a non-nil cmd) instead of erroring.
+func TestUpdateGotoResolvedMsgSuccessReturnsExecCmd(t *testing.T) {
+	m := newTestModel()
+	got, cmd := m.Update(gotoResolvedMsg{path: "foo.cpp", line: 12})
+	gm := got.(Model)
+	if gm.err != nil {
+		t.Errorf("expected no err on a successful goto resolution, got %v", gm.err)
+	}
+	if cmd == nil {
+		t.Error("expected a non-nil cmd (tea.ExecProcess) on a successful goto resolution")
+	}
+}
+
+// TestUpdateGotoDoneMsgSurfacesExecError confirms a failed editor
+// subprocess (nonzero exit, binary not found) surfaces as the status-bar
+// error rather than vanishing silently.
+func TestUpdateGotoDoneMsgSurfacesExecError(t *testing.T) {
+	m := newTestModel()
+	got, _ := m.Update(gotoDoneMsg{err: errors.New("exit status 1")})
+	gm := got.(Model)
+	if gm.err == nil {
+		t.Error("expected err to be set after a failed editor subprocess")
+	}
+}
+
+// TestUpdateGotoDoneMsgNoErrorIsNoop confirms a clean editor exit doesn't
+// spuriously set an error.
+func TestUpdateGotoDoneMsgNoErrorIsNoop(t *testing.T) {
+	m := newTestModel()
+	got, cmd := m.Update(gotoDoneMsg{})
+	gm := got.(Model)
+	if gm.err != nil {
+		t.Errorf("expected no err after a clean editor exit, got %v", gm.err)
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd after a clean editor exit")
+	}
+}
+
+// TestHandleKeyClearsStaleErr is the regression test for a reported bug:
+// switching tabs (or pressing any other key) kept showing a stale error
+// banner from an earlier, unrelated failed action even though the new
+// tab's content loaded and switched correctly.
+func TestHandleKeyClearsStaleErr(t *testing.T) {
+	m := newTestModel()
+	m.bundles = append(m.bundles, bundle{name: "second"})
+	m.err = errors.New("stale error from a previous action")
+
+	got, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+	gm := got.(Model)
+	if gm.err != nil {
+		t.Errorf("expected err to be cleared after switching tabs, got %v", gm.err)
 	}
 }
 
