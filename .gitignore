@@ -26,3 +26,6 @@ tests/fixtures/**/compile_commands.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Session handoff notes (local-only, not committed)
+/handoff.md
