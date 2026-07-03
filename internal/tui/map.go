@@ -42,7 +42,18 @@ type Node struct {
 	Follow    followKind
 	Target    string // symbol/class/file name or path to follow into
 	ClassCtx  string // class filter, to disambiguate a method follow
-	Children  []Node
+
+	// GotoPath/GotoLine give the g ("open in editor") key a location it
+	// already knows, without an extra LSP round trip — set wherever a
+	// compositor already handed back a concrete file+line (definitions,
+	// call sites). Left empty for symbol-target nodes (calls, members,
+	// base/derived classes, etc.) whose location isn't known until g
+	// resolves it via workspace/symbol at press time. GotoLine is
+	// 1-indexed; 0 means "open the file with no specific line".
+	GotoPath string
+	GotoLine int
+
+	Children []Node
 }
 
 // flatNode is a Node flattened for cursor-addressed rendering/selection —
@@ -178,9 +189,11 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 	if rm.DefinedAt.Path != "" {
 		defined := Node{Label: "defined in"}
 		loc := Node{
-			Label:  fmt.Sprintf("%s :%d", rm.DefinedAt.Path, rm.DefinedAt.Line),
-			Follow: followFile,
-			Target: rm.DefinedAt.Path,
+			Label:    fmt.Sprintf("%s :%d", rm.DefinedAt.Path, rm.DefinedAt.Line),
+			Follow:   followFile,
+			Target:   rm.DefinedAt.Path,
+			GotoPath: rm.DefinedAt.Path,
+			GotoLine: rm.DefinedAt.Line,
 		}
 		defined.Children = append(defined.Children, loc)
 		if rm.Signature != "" {
@@ -208,8 +221,10 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 					// Following a call site opens that file — skein doesn't
 					// yet resolve the enclosing caller symbol at a bare
 					// location (see docs/SPEC.md section 8, path-finding).
-					Follow: followFile,
-					Target: group.File,
+					Follow:   followFile,
+					Target:   group.File,
+					GotoPath: group.File,
+					GotoLine: group.Lines[0],
 				})
 				continue
 			}
@@ -220,6 +235,8 @@ func buildMethodTree(rm *compositor.RelationMap) []Node {
 					Direction: directionIncoming,
 					Follow:    followFile,
 					Target:    group.File,
+					GotoPath:  group.File,
+					GotoLine:  line,
 				})
 			}
 			calledIn.Children = append(calledIn.Children, fileNode)
@@ -276,9 +293,11 @@ func buildClassTree(cm *compositor.ClassMap) []Node {
 
 	if cm.DefinedAt.Path != "" {
 		nodes = append(nodes, Node{
-			Label:  fmt.Sprintf("defined in %s :%d", cm.DefinedAt.Path, cm.DefinedAt.Line),
-			Follow: followFile,
-			Target: cm.DefinedAt.Path,
+			Label:    fmt.Sprintf("defined in %s :%d", cm.DefinedAt.Path, cm.DefinedAt.Line),
+			Follow:   followFile,
+			Target:   cm.DefinedAt.Path,
+			GotoPath: cm.DefinedAt.Path,
+			GotoLine: cm.DefinedAt.Line,
 		})
 	}
 
