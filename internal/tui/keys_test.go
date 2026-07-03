@@ -9,24 +9,32 @@ import (
 )
 
 func TestHintsForFocus(t *testing.T) {
-	search := hints(focusSearch, true)
+	search := hints(focusSearch, true, 1)
 	if !strings.Contains(search, "select result") {
 		t.Errorf("search hints = %q, want it to mention selecting a result", search)
 	}
 
-	searchNoResults := hints(focusSearch, false)
+	searchNoResults := hints(focusSearch, false, 1)
 	if !strings.Contains(searchNoResults, "recall search") {
 		t.Errorf("search hints with no results = %q, want it to mention recalling a search", searchNoResults)
 	}
 
-	mapHints := hints(focusMap, false)
+	mapHints := hints(focusMap, false, 1)
 	if !strings.Contains(mapHints, "follow") {
 		t.Errorf("map hints = %q, want it to mention follow", mapHints)
 	}
-	for _, want := range []string{"quit", "help", "unpin"} {
+	for _, want := range []string{"quit", "help", "unpin", "goto"} {
 		if !strings.Contains(mapHints, want) {
 			t.Errorf("map hints = %q, want it to mention %q (reported missing from the always-visible footer)", mapHints, want)
 		}
+	}
+	if strings.Contains(mapHints, "switch tab") {
+		t.Errorf("map hints = %q, want no tab-switch hint with only one bundle open", mapHints)
+	}
+
+	multiBundleHints := hints(focusMap, false, 2)
+	if !strings.Contains(multiBundleHints, "switch tab") {
+		t.Errorf("map hints with 2 bundles = %q, want it to mention switching tabs", multiBundleHints)
 	}
 }
 
@@ -41,8 +49,9 @@ func TestKeyBindingsMatchExpectedRunes(t *testing.T) {
 		{"down j", "j", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Down) }},
 		{"follow enter", "enter", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Follow) }},
 		{"follow l", "l", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Follow) }},
-		{"back u", "u", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Back) }},
 		{"back h", "h", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Back) }},
+		{"unpin u", "u", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Unpin) }},
+		{"goto g", "g", func(m tea.KeyMsg) bool { return key.Matches(m, keys.Goto) }},
 		{"toggle in i", "i", func(m tea.KeyMsg) bool { return key.Matches(m, keys.ToggleIn) }},
 		{"toggle out o", "o", func(m tea.KeyMsg) bool { return key.Matches(m, keys.ToggleOut) }},
 	}
@@ -53,6 +62,14 @@ func TestKeyBindingsMatchExpectedRunes(t *testing.T) {
 				t.Errorf("expected key %q to match %s", tt.keyStr, tt.name)
 			}
 		})
+	}
+}
+
+func TestBackNoLongerMatchesU(t *testing.T) {
+	// u is now the dedicated Unpin key — Back must be h-only so the two
+	// don't both fire on the same keypress.
+	if key.Matches(keyMsgFor("u"), keys.Back) {
+		t.Error("Back should not match 'u' now that u is the Unpin key")
 	}
 }
 

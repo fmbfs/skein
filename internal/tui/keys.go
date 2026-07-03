@@ -21,6 +21,8 @@ type keyMap struct {
 	Forward      key.Binding
 	Reset        key.Binding
 	Pin          key.Binding
+	Unpin        key.Binding
+	Goto         key.Binding
 	PrevBundle   key.Binding
 	NextBundle   key.Binding
 	CloseBundle  key.Binding
@@ -81,8 +83,8 @@ var keys = keyMap{
 		key.WithHelp("↓", "next result"),
 	),
 	Back: key.NewBinding(
-		key.WithKeys("u", "h"),
-		key.WithHelp("u/h", "back"),
+		key.WithKeys("h"),
+		key.WithHelp("h", "back"),
 	),
 	Forward: key.NewBinding(
 		key.WithKeys("ctrl+r"),
@@ -95,6 +97,14 @@ var keys = keyMap{
 	Pin: key.NewBinding(
 		key.WithKeys("p"),
 		key.WithHelp("p", "pin"),
+	),
+	Unpin: key.NewBinding(
+		key.WithKeys("u"),
+		key.WithHelp("u", "unpin"),
+	),
+	Goto: key.NewBinding(
+		key.WithKeys("g"),
+		key.WithHelp("g", "goto"),
 	),
 	PrevBundle: key.NewBinding(
 		key.WithKeys("["),
@@ -130,8 +140,10 @@ var keys = keyMap{
 // tailored to the current focus (search bar shows fewer/different hints
 // than the map panel). hasResults switches the ↑/↓ hint's description
 // between "select result" and "recall search" depending on whether the
-// search box currently has anything to navigate.
-func hints(focus focusArea, hasResults bool) string {
+// search box currently has anything to navigate. bundleCount adds the
+// [/] tab-switch hint (and its digit-jump note) only when there's more
+// than one bundle open to switch between.
+func hints(focus focusArea, hasResults bool, bundleCount int) string {
 	if focus == focusSearch {
 		upDownHint := "select result"
 		if !hasResults {
@@ -143,15 +155,23 @@ func hints(focus focusArea, hasResults bool) string {
 			{"esc", "cancel"},
 		})
 	}
-	return renderHints([][2]string{
+	pairs := [][2]string{
 		{"enter/l", "follow"},
+		{"g", "goto"},
 		{"p", "pin"},
-		{"x", "unpin"},
-		{"u/h", "back"},
-		{"/", "search"},
-		{"?", "help"},
-		{"q", "quit"},
-	})
+		{"u", "unpin"},
+		{"x", "close"},
+		{"h", "back"},
+	}
+	if bundleCount > 1 {
+		pairs = append(pairs, [2]string{"[/]/1-9", "switch tab"})
+	}
+	pairs = append(pairs,
+		[2]string{"/", "search"},
+		[2]string{"?", "help"},
+		[2]string{"q", "quit"},
+	)
+	return renderHints(pairs)
 }
 
 func renderHints(pairs [][2]string) string {

@@ -174,6 +174,22 @@ type searchDebounceMsg struct {
 // round trip instead of one per character.
 const searchDebounceDelay = 120 * time.Millisecond
 
+// gotoResolvedMsg carries the result of resolving a symbol-target Node's
+// location via workspace/symbol, for the g ("goto") key on nodes that had
+// no GotoPath baked in at build time (calls, members, inherits/
+// inheritedBy — see Node's doc comment in map.go).
+type gotoResolvedMsg struct {
+	path string
+	line int
+	err  error
+}
+
+// gotoDoneMsg surfaces any error from the editor subprocess itself
+// (nonzero exit, binary not found, etc.) once it exits.
+type gotoDoneMsg struct {
+	err error
+}
+
 // --- commands -------------------------------------------------------------
 
 func resolveGenericCmd(client *lsp.Client, rootDir, name string, ply int) tea.Cmd {
@@ -202,6 +218,36 @@ func resolveGeneric(client *lsp.Client, rootDir, name string, ply int, pinning b
 	msg.pinning = pinning
 	msg.label = best.Name
 	return msg
+}
+
+// gotoResolveCmd looks up target's definition via workspace/symbol so the
+// g key can jump to a symbol-target Node that had no location baked in at
+// build time (calls, members, inherits/inheritedBy). Reuses the same
+// *lsp.Client the rest of the session already benefits from, including
+// internal/compositor/shared.go's index-warm fast path, so this is a
+// single fast round trip after the workspace's first lookup.
+func gotoResolveCmd(client *lsp.Client, target string) tea.Cmd {
+	return func() tea.Msg {
+		matches, err := client.WorkspaceSymbol(target)
+		if err != nil {
+			return gotoResolvedMsg{err: fmt.Errorf("workspace/symbol %q: %w", target, err)}
+		}
+		if len(matches) == 0 {
+			return gotoResolvedMsg{err: fmt.Errorf("no symbol found matching %q", target)}
+		}
+		best := matches[0]
+		path, err := lsp.URIToPath(best.Location.URI)
+		if err != nil {
+			return gotoResolvedMsg{err: fmt.Errorf("resolve %q location: %w", target, err)}
+		}
+		return gotoResolvedMsg{path: path, line: best.Location.Range.Start.Line + 1}
+	}
+}
+
+// gotoExecCallback turns the editor subprocess's exit error (if any) into
+// a gotoDoneMsg for Update to surface as a status-bar error once it exits.
+func gotoExecCallback(err error) tea.Msg {
+	return gotoDoneMsg{err: err}
 }
 
 func loadMethodCmd(client *lsp.Client, rootDir, name, classFilter string, ply int) tea.Cmd {
@@ -357,6 +403,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, searchCmd(m.client, msg.query, msg.gen)
 
+	case gotoResolvedMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		return m, tea.ExecProcess(editorCommand(msg.path, msg.line), gotoExecCallback)
+
+	case gotoDoneMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			m.status = msg.err.Error()
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
@@ -393,6 +454,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSearchKey(msg)
 	}
 
+	// Any keypress dismisses a stale error banner from an earlier, unrelated
+	// action (e.g. an ambiguous follow) — without this, switching tabs via
+	// [ / ] or a digit jump kept showing that old error even though the new
+	// tab's content loaded and switched correctly, making tab-switching look
+	// broken when it wasn't.
+	m.err = nil
+
 	switch {
 	case key.Matches(msg, keys.Quit):
 		m.quitting = true
@@ -422,6 +490,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Follow):
 		return m.follow()
+	case key.Matches(msg, keys.Goto):
+		return m.gotoSelected()
 	case key.Matches(msg, keys.Back):
 		return m.spoolBack(), nil
 	case key.Matches(msg, keys.Forward):
@@ -430,6 +500,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.spoolReset(), nil
 	case key.Matches(msg, keys.Pin):
 		return m.pinCurrent(), nil
+	case key.Matches(msg, keys.Unpin):
+		return m.unpinCurrent(), nil
 	case key.Matches(msg, keys.PrevBundle):
 		m.activeBundle = cycleBundle(m.activeBundle, len(m.bundles), -1)
 		return m, nil
@@ -564,6 +636,30 @@ func (m Model) follow() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// gotoSelected opens the currently-selected Node's location in the user's
+// default editor (docs/SPEC.md `g` key). Mirrors follow()'s cursor
+// addressing: get the active thread, filter/flatten it by the current
+// direction toggles, and address the selected Node by cursor. Nodes that
+// already carry a known GotoPath (definitions, call sites) jump straight
+// to tea.ExecProcess; symbol-target nodes with no baked-in location
+// (calls, members, inherits/inheritedBy) go through gotoResolveCmd first.
+func (m Model) gotoSelected() (tea.Model, tea.Cmd) {
+	t := m.activeThread()
+	visible := filterByDirection(t.nodes, m.showIn, m.showOut)
+	flat := flatten(visible)
+	if t.cursor < 0 || t.cursor >= len(flat) {
+		return m, nil
+	}
+	n := flat[t.cursor].node
+	if n.GotoPath != "" {
+		return m, tea.ExecProcess(editorCommand(n.GotoPath, n.GotoLine), gotoExecCallback)
+	}
+	if n.Follow == followNone {
+		return m, nil
+	}
+	return m, gotoResolveCmd(m.client, n.Target)
+}
+
 func (m Model) spoolBack() Model {
 	b := &m.bundles[m.activeBundle]
 	if len(b.back) == 0 {
@@ -599,19 +695,25 @@ func (m Model) spoolReset() Model {
 }
 
 // pinCurrent snapshots the active thread into a brand-new bundle tab
-// (docs/SPEC.md `p` key) without disturbing the tab it was pinned from.
-// Pressing p again while already on a pinned tab instead unpins it (closes
-// it) — without this, repeatedly pressing p (e.g. out of habit, or
-// uncertainty about whether it "took") kept stacking indistinguishable
-// duplicate tabs with no way to remove them short of knowing the separate
-// x key, which was reported as "we are unable to unpin".
+// (docs/SPEC.md `p` key), without disturbing the tab it was pinned from.
+// p always creates a new tab now — the earlier toggle-to-unpin behaviour
+// was replaced by a dedicated u (unpin) key so repeated p presses (e.g.
+// to compare the same symbol at different ply/filter settings) reliably
+// stack tabs instead of sometimes closing the one you just made.
 func (m Model) pinCurrent() Model {
-	if m.bundles[m.activeBundle].pinned {
-		m.bundles, m.activeBundle = closeBundle(m.bundles, m.activeBundle, m.activeBundle)
-		return m
-	}
 	t := *m.activeThread()
 	m.bundles, m.activeBundle = pinBundle(m.bundles, t.name, t)
+	return m
+}
+
+// unpinCurrent closes the active bundle (docs/SPEC.md `u` key) if and only
+// if it's a pinned tab (bundle.pinned) — a no-op on the original "tangle"
+// entry bundle, which has nothing to unpin.
+func (m Model) unpinCurrent() Model {
+	if !m.bundles[m.activeBundle].pinned {
+		return m
+	}
+	m.bundles, m.activeBundle = closeBundle(m.bundles, m.activeBundle, m.activeBundle)
 	return m
 }
 

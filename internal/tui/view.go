@@ -43,7 +43,7 @@ func (m Model) View() string {
 		b.WriteByte('\n')
 	}
 
-	b.WriteString(hints(m.focus, len(m.search.results) > 0))
+	b.WriteString(hints(m.focus, len(m.search.results) > 0, len(m.bundles)))
 	return b.String()
 }
 
