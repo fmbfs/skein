@@ -1,0 +1,11 @@
+# CODEOWNERS
+#
+# Branch protection on `main` sets require_code_owner_reviews: true, but no
+# CODEOWNERS file existed to back it (I2, skein review M375/M379) — meaning
+# the requirement was silently a no-op. This file makes it real.
+#
+# Order matters: the last matching pattern wins. A single catch-all is
+# correct for this repo's current size/ownership (one maintainer); split
+# into per-path owners if/when the contributor base grows.
+
+* @fmbfs
