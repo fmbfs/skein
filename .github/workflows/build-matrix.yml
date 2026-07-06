@@ -1,0 +1,74 @@
+name: Build Matrix
+
+# Reusable workflow (M3, skein review M375/M379): nightly.yml and release.yml
+# both built the same 4-platform (goos/goarch) matrix inline, differing only
+# in the version string baked into the binary and how the resulting release
+# was published. This factors the shared matrix + build + checksum step out
+# once; each caller still owns its own publish step, since nightly.yml
+# (recreate the moving "nightly" tag every run) and release.yml (tag-driven,
+# auto-generated release notes, RC prerelease/draft logic) genuinely differ
+# there and shouldn't be forced into one shape.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Value baked into -X main.version"
+        required: true
+        type: string
+      build_date:
+        description: "RFC3339 UTC value baked into -X main.buildDate"
+        required: true
+        type: string
+      commit:
+        description: "Full commit SHA baked into -X main.commit"
+        required: true
+        type: string
+      artifact_name:
+        description: "Prefix for the uploaded build artifact name(s)"
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux,   goarch: amd64}
+          - {goos: linux,   goarch: arm64}
+          - {goos: darwin,  goarch: amd64}
+          - {goos: darwin,  goarch: arm64}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        env:
+          GOOS:        ${{ matrix.goos }}
+          GOARCH:      ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          BINARY="skein-${{ matrix.goos }}-${{ matrix.goarch }}"
+          go build \
+            -ldflags="-s -w \
+              -X main.version=${{ inputs.version }} \
+              -X main.buildDate=${{ inputs.build_date }} \
+              -X main.commit=${{ inputs.commit }}" \
+            -o "dist/${BINARY}" \
+            ./cmd/skein
+          cd dist && sha256sum "${BINARY}" > "${BINARY}.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          retention-days: 1
