@@ -516,6 +516,21 @@ func TestUnpinCurrentIsNoopOnTangleTab(t *testing.T) {
 	}
 }
 
+// TestPinCurrentIsNoopOnTangleTab is the regression test for the
+// "multiple empty tangle bundles" bug reported in handoff.md
+// (tui-fix-multiple-empty-tangle-bundles): pressing p before any thread is
+// selected must not stack duplicate, unusable "[tangle]" tabs.
+func TestPinCurrentIsNoopOnTangleTab(t *testing.T) {
+	m := newTestModel()
+	m = m.pinCurrent()
+	if len(m.bundles) != 1 {
+		t.Errorf("bundles after pinCurrent on tangle tab = %+v, want unchanged 1 (no-op)", m.bundles)
+	}
+	if m.activeBundle != 0 {
+		t.Errorf("activeBundle after pinCurrent on tangle tab = %d, want unchanged 0", m.activeBundle)
+	}
+}
+
 func TestFollowSearchResultNoSelection(t *testing.T) {
 	m := newTestModel()
 	got, cmd := m.followSearchResult()

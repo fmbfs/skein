@@ -700,8 +700,16 @@ func (m Model) spoolReset() Model {
 // was replaced by a dedicated u (unpin) key so repeated p presses (e.g.
 // to compare the same symbol at different ply/filter settings) reliably
 // stack tabs instead of sometimes closing the one you just made.
+//
+// A no-op on the empty "tangle" entry state (kind == "tangle", no symbol
+// chosen yet): pinning it produced multiple empty "[tangle]" tabs with
+// nothing to follow or unpin, confirmed as a real bug during the M375/M379
+// skein review (handoff.md's tui-fix-multiple-empty-tangle-bundles item).
 func (m Model) pinCurrent() Model {
 	t := *m.activeThread()
+	if t.kind == "tangle" {
+		return m
+	}
 	m.bundles, m.activeBundle = pinBundle(m.bundles, t.name, t)
 	return m
 }
