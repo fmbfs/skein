@@ -26,6 +26,19 @@ type fakeClient struct {
 	outgoingErr   error // simulates clangd's "method not found" for outgoingCalls
 
 	openedFiles []string
+
+	// indexWarm mirrors lsp.Client's per-client warm-index flag (M1, skein
+	// review M375/M379) so fakeClient satisfies the languageClient
+	// interface without a shared/global registry.
+	indexWarm bool
+}
+
+func (f *fakeClient) IsIndexWarm() bool {
+	return f.indexWarm
+}
+
+func (f *fakeClient) MarkIndexWarm() {
+	f.indexWarm = true
 }
 
 func (f *fakeClient) WorkspaceSymbol(query string) ([]lsp.SymbolInformation, error) {
@@ -197,7 +210,7 @@ func TestFindWorkspaceSymbol_WarmClientSkipsStabilisation(t *testing.T) {
 	if _, err := mc.findWorkspaceSymbol("foo"); err != nil {
 		t.Fatalf("first findWorkspaceSymbol error: %v", err)
 	}
-	if !isIndexWarm(client) {
+	if !client.IsIndexWarm() {
 		t.Fatalf("client should be marked warm after a stabilised resolution")
 	}
 
@@ -209,7 +222,7 @@ func TestFindWorkspaceSymbol_WarmClientSkipsStabilisation(t *testing.T) {
 	client2 := &fakeClient{workspaceSymbolSeq: [][]lsp.SymbolInformation{other}}
 	// Reuse client2 as a distinct fake but manually mark it warm to
 	// simulate "already warm from a prior Build() on this same session".
-	markIndexWarm(client2)
+	client2.MarkIndexWarm()
 
 	callsBefore := client2.workspaceSymbolCalls
 	symbols, err := (&MethodCompositor{base{Client: client2, RootDir: t.TempDir()}}).findWorkspaceSymbol("bar")
@@ -238,7 +251,7 @@ func TestFindWorkspaceSymbol_WarmClientFallsBackWhenNotFound(t *testing.T) {
 		// Then the retry loop sees it appear and stabilise.
 		workspaceSymbolSeq: [][]lsp.SymbolInformation{{}, full, full, full},
 	}
-	markIndexWarm(client)
+	client.MarkIndexWarm()
 
 	symbols, err := (&MethodCompositor{base{Client: client, RootDir: t.TempDir()}}).findWorkspaceSymbol("freshlyAdded")
 	if err != nil {

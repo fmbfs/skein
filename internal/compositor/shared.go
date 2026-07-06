@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/fmbfs/skein/internal/lsp"
@@ -33,6 +32,14 @@ type languageClient interface {
 	PrepareTypeHierarchy(path string, pos lsp.Position) ([]lsp.TypeHierarchyItem, error)
 	Supertypes(item lsp.TypeHierarchyItem) ([]lsp.TypeHierarchyItem, error)
 	Subtypes(item lsp.TypeHierarchyItem) ([]lsp.TypeHierarchyItem, error)
+
+	// IsIndexWarm/MarkIndexWarm replace the old package-level
+	// indexWarmClients sync.Map (M1, skein review M375/M379): the
+	// "has this client's index been observed stable once" flag is
+	// per-client state, so it belongs on the client itself rather than
+	// a process-global registry keyed by client identity.
+	IsIndexWarm() bool
+	MarkIndexWarm()
 }
 
 // base holds the client/root-dir pair and helpers shared by every
@@ -71,7 +78,7 @@ func (b *base) relPath(abs string) string {
 // interface's pure-virtual declaration before the concrete class's and its
 // PIMPL's .cpp definitions appeared ~1s later.
 //
-// Once a client's index has been observed stable once (indexWarmClients),
+// Once a client's index has been observed stable once (Client.IsIndexWarm),
 // every subsequent call skips this stabilisation wait entirely and trusts
 // a single-shot result — reported directly as "search vs load time is too
 // long": every follow/navigation re-paid the same ~900ms-1.2s cold-start
@@ -81,7 +88,7 @@ func (b *base) relPath(abs string) string {
 // full retry loop below, so a genuinely just-added/not-yet-indexed symbol
 // is still handled correctly.
 func (b *base) findWorkspaceSymbol(name string) ([]lsp.SymbolInformation, error) {
-	if isIndexWarm(b.Client) {
+	if b.Client.IsIndexWarm() {
 		symbols, err := b.Client.WorkspaceSymbol(name)
 		if err != nil {
 			return nil, err
@@ -115,7 +122,7 @@ func (b *base) findWorkspaceSymbol(name string) ([]lsp.SymbolInformation, error)
 				lastCount = len(symbols)
 				stableSince = time.Now()
 			} else if time.Since(stableSince) >= 800*time.Millisecond {
-				markIndexWarm(b.Client)
+				b.Client.MarkIndexWarm()
 				return symbols, nil
 			}
 		}
@@ -125,24 +132,6 @@ func (b *base) findWorkspaceSymbol(name string) ([]lsp.SymbolInformation, error)
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-}
-
-// indexWarmClients tracks which languageClient instances have already
-// completed one full, stabilised findWorkspaceSymbol resolution — see that
-// method's doc comment for why this matters. Keyed by the client's
-// interface value (always a pointer in practice: *lsp.Client or a test
-// fake), so this is safe to use as a comparable map key; entries live for
-// the process's lifetime, which for this CLI is exactly one clangd
-// session, so there's nothing to evict.
-var indexWarmClients sync.Map
-
-func isIndexWarm(c languageClient) bool {
-	_, ok := indexWarmClients.Load(c)
-	return ok
-}
-
-func markIndexWarm(c languageClient) {
-	indexWarmClients.Store(c, struct{}{})
 }
 
 // ResolveSymbol performs the same clangd cold-start indexing workaround
