@@ -104,7 +104,7 @@ func TestTUIBareLaunchSearchAndFollow(t *testing.T) {
 	// once a thread is loaded into it via search-follow — bundle.name is
 	// only set on creation (New/pinBundle), never renamed by
 	// applyThreadLoaded's non-pinning branch. That's existing, deliberate
-	// behavior (only `p` creates a freshly-named tab), not a defect this
+	// behaviour (only `p` creates a freshly-named tab), not a defect this
 	// smoke test is checking for.
 }
 
