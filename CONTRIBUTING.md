@@ -35,6 +35,15 @@ go test ./tests/e2e/...          # E2E (needs clangd installed)
 golangci-lint run
 ```
 
+Before running `tests/e2e/`, regenerate the fixture's compilation database —
+`tests/fixtures/simple_cpp/build/compile_commands.json` is not committed and
+goes stale against the fixture's own `CMakeLists.txt`:
+
+```bash
+cd tests/fixtures/simple_cpp
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
 ## Requirements for development
 
 - Go >= 1.22
@@ -71,6 +80,10 @@ Scopes: `lsp`, `compositor`, `tui`, `draw`, `ci`, `docs`.
 - Update `CHANGELOG.md` under `[Unreleased]`.
 - Update `docs/SPEC.md` if behaviour changes.
 - Sign your commits (`git commit -S`).
+- Manually verify any TUI-facing change via `tmux` (headless pane capture)
+  before declaring it done — `tmux new-session -d -s <name> -x <cols> -y
+  <rows> "<cmd>"`, `tmux send-keys`, `tmux capture-pane -p` (plain) or
+  `-p -e` (raw ANSI, for color/highlight verification), `tmux kill-session`.
 
 ## Code style
 
