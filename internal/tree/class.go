@@ -70,7 +70,7 @@ func printMemberList(w io.Writer, prefix string, members []compositor.Member) {
 
 func memberLabel(m compositor.Member) string {
 	name := m.Name
-	if m.Kind == "method" || m.Kind == "function" {
+	if compositor.KindIsCallable(m.Kind) {
 		name += "()"
 	}
 	return fmt.Sprintf("%s [%s]", name, m.Kind)
