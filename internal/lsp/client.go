@@ -35,6 +35,27 @@ type Client struct {
 	nextID  int64
 	rootURI string
 	ioMu    sync.Mutex
+
+	// indexWarm records whether this client's clangd index has been
+	// observed stable once (compositor.base.findWorkspaceSymbol's
+	// stabilised-retry loop) — moved here from a package-level
+	// sync.Map in the compositor package (M1, skein review M375/M379)
+	// since the flag is inherently per-client state. atomic.Bool keeps
+	// it race-safe without a mutex, consistent with nextID above.
+	indexWarm atomic.Bool
+}
+
+// IsIndexWarm reports whether this client's index has previously been
+// observed to stabilise via a full findWorkspaceSymbol resolution.
+func (c *Client) IsIndexWarm() bool {
+	return c.indexWarm.Load()
+}
+
+// MarkIndexWarm records that this client's index has now been observed
+// stable once; subsequent findWorkspaceSymbol calls can skip the
+// stabilisation wait.
+func (c *Client) MarkIndexWarm() {
+	c.indexWarm.Store(true)
 }
 
 // New spawns clangdPath as a subprocess rooted at rootDir (the directory

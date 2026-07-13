@@ -9,18 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  nightly:
-    name: Nightly (${{ matrix.goos }}/${{ matrix.goarch }})
+  test:
+    name: Unit tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {goos: linux,   goarch: amd64}
-          - {goos: linux,   goarch: arm64}
-          - {goos: darwin,  goarch: amd64}
-          - {goos: darwin,  goarch: arm64}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -32,32 +23,52 @@ jobs:
       - name: Run unit tests
         run: go test ./internal/... -race -timeout=2m
 
-      - name: Build nightly binary
-        env:
-          GOOS:        ${{ matrix.goos }}
-          GOARCH:      ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          NIGHTLY_VERSION="nightly-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
-          BINARY="skein-${{ matrix.goos }}-${{ matrix.goarch }}"
-          go build \
-            -ldflags="-s -w \
-              -X main.version=${NIGHTLY_VERSION} \
-              -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-              -X main.commit=$(git rev-parse HEAD)" \
-            -o "dist/${BINARY}" \
-            ./cmd/skein
-          cd dist && sha256sum "${BINARY}" > "${BINARY}.sha256"
+  compute-version:
+    name: Compute nightly version
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version:    ${{ steps.v.outputs.version }}
+      build_date: ${{ steps.v.outputs.build_date }}
+      commit:     ${{ steps.v.outputs.commit }}
+      date:       ${{ steps.v.outputs.date }}
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Compute nightly date
-        id: nightly_date
-        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - id: v
+        run: |
+          echo "version=nightly-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build
+    needs: compute-version
+    uses: ./.github/workflows/build-matrix.yml
+    with:
+      version:       ${{ needs.compute-version.outputs.version }}
+      build_date:    ${{ needs.compute-version.outputs.build_date }}
+      commit:        ${{ needs.compute-version.outputs.commit }}
+      artifact_name: nightly
+
+  publish:
+    name: Update nightly release
+    needs: [compute-version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: nightly-*
+          path: dist
+          merge-multiple: true
 
       - name: Update nightly release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: "Nightly build (${{ steps.nightly_date.outputs.date }})"
+          name: "Nightly build (${{ needs.compute-version.outputs.date }})"
           body: |
             Automated nightly build from `main`.
             Commit: ${{ github.sha }}

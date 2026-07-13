@@ -10,44 +10,36 @@ permissions:
   contents: write   # needed to create GitHub releases
 
 jobs:
-  release:
-    name: Release (${{ matrix.goos }}/${{ matrix.goarch }})
+  compute-build-date:
+    name: Compute build date
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {goos: linux,   goarch: amd64}
-          - {goos: linux,   goarch: arm64}
-          - {goos: darwin,  goarch: amd64}
-          - {goos: darwin,  goarch: arm64}
-
+    outputs:
+      build_date: ${{ steps.d.outputs.build_date }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # full history for changelog generation
+      - id: d
+        run: echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+  build:
+    name: Build
+    needs: compute-build-date
+    uses: ./.github/workflows/build-matrix.yml
+    with:
+      version:       ${{ github.ref_name }}
+      build_date:    ${{ needs.compute-build-date.outputs.build_date }}
+      commit:        ${{ github.sha }}
+      artifact_name: release
 
-      - name: Build release binary
-        env:
-          GOOS:        ${{ matrix.goos }}
-          GOARCH:      ${{ matrix.goarch }}
-          CGO_ENABLED: 0
-        run: |
-          BINARY="skein-${{ matrix.goos }}-${{ matrix.goarch }}"
-          go build \
-            -ldflags="-s -w \
-              -X main.version=${{ github.ref_name }} \
-              -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-              -X main.commit=${{ github.sha }}" \
-            -o "dist/${BINARY}" \
-            ./cmd/skein
-          # Checksum
-          cd dist && sha256sum "${BINARY}" > "${BINARY}.sha256"
+  publish:
+    name: Upload to GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2

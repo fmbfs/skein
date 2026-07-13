@@ -344,9 +344,13 @@ func buildFileTree(fm *compositor.FileMap) []Node {
 func buildMemberNodes(members []compositor.Member, classCtx string) []Node {
 	nodes := make([]Node, 0, len(members))
 	for _, m := range members {
-		n := Node{Label: fmt.Sprintf("%s [%s]", m.Name, m.Kind)}
+		label := m.Name
+		if compositor.KindIsCallable(m.Kind) {
+			label += "()"
+		}
+		n := Node{Label: fmt.Sprintf("%s [%s]", label, m.Kind)}
 		switch m.Kind {
-		case "method", "function", "constructor":
+		case "method", "function":
 			n.Follow = followMethod
 			n.Target = m.Name
 			n.ClassCtx = classCtx

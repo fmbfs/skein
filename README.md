@@ -87,14 +87,18 @@ so that users already familiar with it feel at home immediately.
 
 | Key | Action |
 |-----|--------|
-| `enter` | **Follow** — selected node becomes new thread |
-| `u` | Back (spool) |
+| `enter` / `l` | **Follow** — selected node becomes new thread |
+| `h` | Back (spool) |
 | `ctrl+r` | Forward (spool) |
+| `r` | Reset to first thread |
 | `j` / `k` | Move up/down |
 | `tab` | Cycle panels |
 | `/` | Search workspace symbols |
+| `g` | Goto definition in `$EDITOR` |
 | `p` | Pin thread to bundle (new tab) |
+| `u` | Unpin thread from bundle |
 | `[` / `]` | Previous / next bundle tab |
+| `x` | Close current bundle tab |
 | `1`-`9` | Jump to bundle tab by number |
 | `i` | Toggle incoming edges |
 | `o` | Toggle outgoing edges |

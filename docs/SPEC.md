@@ -174,16 +174,18 @@ Lazygit-inspired. Keyboard-first. No mouse required.
 |-----|--------|
 | `j` / `↓` | Move selection down |
 | `k` / `↑` | Move selection up |
-| `enter` | **Follow** — selected node becomes new thread |
-| `u` | Back (spool) |
+| `enter` / `l` | **Follow** — selected node becomes new thread |
+| `h` | Back (spool) |
 | `ctrl+r` | Forward (spool) |
 | `r` | Reset to first thread |
+| `g` | Goto definition in `$EDITOR` |
 
 ### Bundle (multi-thread)
 
 | Key | Action |
 |-----|--------|
 | `p` | Pin current thread to bundle (new tab) |
+| `u` | Unpin current thread from bundle |
 | `[` | Previous bundle tab |
 | `]` | Next bundle tab |
 | `x` | Close current bundle tab |
